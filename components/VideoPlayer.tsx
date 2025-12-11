@@ -36,7 +36,7 @@ const VIDFAST_ORIGINS = [
 ];
 
 const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ 
-  tmdbId, type, season = 1, episode = 1, onPlayerEvent, isHost = true, enableProgressSave = true
+  tmdbId, type, season = 1, episode = 1, mediaTitle, posterPath, backdropPath, onPlayerEvent, isHost = true, enableProgressSave = true
 }, ref) => {
   const [src, setSrc] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -105,7 +105,19 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
         // 2. Progress Saving 
         // Only save if prop is enabled (Default true, False for Watch Party)
         if (data.type === 'MEDIA_DATA' && enableProgressSave) {
-            saveProgress(data.data);
+            // CRITICAL FIX: Override the ID and metadata from props to ensure consistency
+            // VidFast might send internal IDs, so we enforce our TMDB ID here.
+            const cleanData = {
+                ...data.data,
+                id: tmdbId, // Force correct TMDB ID
+                type: type, // Force correct Type
+                title: mediaTitle || data.data.title,
+                poster_path: posterPath || data.data.poster_path,
+                backdrop_path: backdropPath || data.data.backdrop_path,
+                last_season_watched: season,
+                last_episode_watched: episode
+            };
+            saveProgress(cleanData);
         }
 
         // 3. Player Events -> Send to Parent (Only if Host)
@@ -138,7 +150,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [isHost, onPlayerEvent, enableProgressSave]);
+  }, [isHost, onPlayerEvent, enableProgressSave, tmdbId, type, season, episode, mediaTitle, posterPath, backdropPath]);
 
   return (
     <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl border border-slate-800 group">

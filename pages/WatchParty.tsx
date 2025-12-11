@@ -107,14 +107,14 @@ const WatchParty: React.FC = () => {
     const unsubSync = subscribeToRoomSync(peerId, (syncState) => {
         // Host ignores own echo, Clients process it
         if (partyMode === 'client' && syncState) {
-            // Check for stale events (older than 2 seconds)
-            // But if it's a state change (Season/Ep), always apply
-            
-            // Media Change
+            // Media Change Check
             if (syncState.media) {
+                // If the host changed the episode, update local state
                 if (syncState.media.season !== season || syncState.media.episode !== episode) {
                     setSeason(syncState.media.season);
                     setEpisode(syncState.media.episode);
+                    // Reset sync timer to allow immediate new sync commands for the new episode
+                    lastSyncTime.current = 0; 
                 }
             }
 
@@ -132,7 +132,7 @@ const WatchParty: React.FC = () => {
                 // Apply
                 if (syncState.action === 'play') {
                     playerRef.current?.seek(adjustedTime);
-                    setTimeout(() => playerRef.current?.play(), 100);
+                    setTimeout(() => playerRef.current?.play(), 250);
                 } else if (syncState.action === 'pause') {
                     playerRef.current?.pause();
                     playerRef.current?.seek(syncState.time);
@@ -308,6 +308,7 @@ const WatchParty: React.FC = () => {
       if (packet.type === 'media_change') {
           setSeason(packet.data.season);
           setEpisode(packet.data.episode);
+          lastSyncTime.current = 0; // Reset debounce so next sync command works immediately
       }
   };
 
@@ -371,8 +372,18 @@ const WatchParty: React.FC = () => {
       setSeason(s);
       setEpisode(e);
       if (partyMode === 'host') {
+          // P2P Update
           broadcastP2P({ type: 'media_change', data: { season: s, episode: e } });
-          updateRoomSync(peerId, { media: { season: s, episode: e }, timestamp: Date.now() });
+          
+          // Firebase Update - CRITICAL: Include 'action' to reset playback to 0 and 'play'
+          // This ensures clients don't just switch episode but also reset their timestamp and play state
+          // preventing them from staying stuck at the old timestamp of the previous video.
+          updateRoomSync(peerId, { 
+              media: { season: s, episode: e }, 
+              action: 'play', // Auto-play new episode
+              time: 0,        // Start at 0
+              timestamp: Date.now() 
+          });
       }
   };
 

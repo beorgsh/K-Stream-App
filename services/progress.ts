@@ -2,7 +2,7 @@ import { db, waitForAuth } from './firebase';
 import { Media, StoredMediaData } from '../types';
 
 const STORAGE_KEY = 'vidFastProgress';
-const DEBOUNCE_MS = 3000; // Save max once every 3 seconds
+const DEBOUNCE_MS = 2000; // Save max once every 2 seconds
 
 // In-memory debounce timers
 const saveTimers: Record<string, any> = {};
