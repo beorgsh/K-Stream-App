@@ -2,7 +2,13 @@ import React, { useEffect, useState, useRef } from 'react';
 import Hero from '../components/Hero';
 import MediaRow from '../components/MediaRow';
 import { HomeSkeleton } from '../components/Skeleton';
-import { fetchTrendingKDramas, fetchPopularKMovies, fetchTopRatedKDramas } from '../services/api';
+import { 
+    fetchTrendingKDramas, 
+    fetchPopularKMovies, 
+    fetchTopRatedKDramas,
+    fetchMediaByLang,
+    fetchAnimeContent
+} from '../services/api';
 import { getContinueWatching } from '../services/progress';
 import { auth } from '../services/firebase';
 import { Media } from '../types';
@@ -13,6 +19,13 @@ const Home: React.FC = () => {
   const [trending, setTrending] = useState<Media[]>([]);
   const [movies, setMovies] = useState<Media[]>([]);
   const [topRated, setTopRated] = useState<Media[]>([]);
+  
+  // New Categories
+  const [cdramas, setCdramas] = useState<Media[]>([]);
+  const [tdramas, setTdramas] = useState<Media[]>([]);
+  const [jdramas, setJdramas] = useState<Media[]>([]);
+  const [anime, setAnime] = useState<Media[]>([]);
+
   const [continueWatching, setContinueWatching] = useState<Media[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -31,15 +44,33 @@ const Home: React.FC = () => {
       const minLoadTime = new Promise(resolve => setTimeout(resolve, 800));
       
       try {
-        const [trendingData, moviesData, topRatedData] = await Promise.all([
+        const [
+            trendingData, 
+            moviesData, 
+            topRatedData, 
+            cData,
+            tData,
+            jData,
+            aData
+        ] = await Promise.all([
           fetchTrendingKDramas(),
           fetchPopularKMovies(),
           fetchTopRatedKDramas(),
+          fetchMediaByLang('tv', 'zh'), // Chinese (Mandarin)
+          fetchMediaByLang('tv', 'th'), // Thai
+          fetchMediaByLang('tv', 'ja'), // Japanese (Live Action)
+          fetchAnimeContent(),          // Anime
           minLoadTime
         ]);
+        
         setTrending(trendingData);
         setMovies(moviesData);
         setTopRated(topRatedData);
+        setCdramas(cData);
+        setTdramas(tData);
+        setJdramas(jData);
+        setAnime(aData);
+
       } catch (error) {
         console.error("Error loading home data", error);
       } finally {
@@ -121,6 +152,12 @@ const Home: React.FC = () => {
         <MediaRow title="Trending K-Dramas" items={trending} />
         <MediaRow title="Popular Korean Movies" items={movies} />
         <MediaRow title="Top Rated Classics" items={topRated} />
+        
+        {/* New Categories */}
+        <MediaRow title="Trending C-Dramas" items={cdramas} />
+        <MediaRow title="Trending J-Dramas" items={jdramas} />
+        <MediaRow title="Trending Thai Dramas" items={tdramas} />
+        <MediaRow title="Popular Anime" items={anime} />
       </div>
 
       {/* History Modal */}

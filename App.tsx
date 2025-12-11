@@ -37,6 +37,7 @@ const App: React.FC = () => {
             <Route path="/" element={<LayoutWithNavbar><Home /></LayoutWithNavbar>} />
             <Route path="/movies" element={<LayoutWithNavbar><Category type="movie" /></LayoutWithNavbar>} />
             <Route path="/tv" element={<LayoutWithNavbar><Category type="tv" /></LayoutWithNavbar>} />
+            <Route path="/anime" element={<LayoutWithNavbar><Category type="tv" isAnime={true} /></LayoutWithNavbar>} />
             <Route path="/search" element={<LayoutWithNavbar><SearchPage /></LayoutWithNavbar>} />
             
             <Route path="/global" element={<LayoutWithNavbar><GlobalHome /></LayoutWithNavbar>} />

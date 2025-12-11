@@ -8,23 +8,24 @@ import { GridSkeleton } from '../components/Skeleton';
 interface CategoryProps {
   type: 'movie' | 'tv';
   isGlobal?: boolean;
+  isAnime?: boolean;
 }
 
-const Category: React.FC<CategoryProps> = ({ type, isGlobal = false }) => {
+const Category: React.FC<CategoryProps> = ({ type, isGlobal = false, isAnime = false }) => {
   const [items, setItems] = useState<Media[]>([]);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
 
-  // Reset when type or mode changes
+  // Reset when type, mode, or anime flag changes
   useEffect(() => {
     setItems([]);
     setPage(1);
     setHasMore(true);
     setLoading(true);
     loadData(1, true);
-  }, [type, isGlobal]);
+  }, [type, isGlobal, isAnime]);
 
   const loadData = async (pageNum: number, isReset: boolean = false) => {
     try {
@@ -38,7 +39,7 @@ const Category: React.FC<CategoryProps> = ({ type, isGlobal = false }) => {
       // Small artificial delay for smoothness
       if (isReset) await new Promise(r => setTimeout(r, 800));
 
-      const newItems = await discoverMedia(type, pageNum, isGlobal);
+      const newItems = await discoverMedia(type, pageNum, isGlobal, isAnime);
       
       if (newItems.length === 0) {
         setHasMore(false);
@@ -63,14 +64,22 @@ const Category: React.FC<CategoryProps> = ({ type, isGlobal = false }) => {
     return <GridSkeleton />;
   }
 
-  const titlePrefix = isGlobal ? "Global" : "Korean";
-  const titleType = type === 'movie' ? 'Movies' : (isGlobal ? 'TV Shows' : 'K-Dramas');
+  // Title Logic
+  let displayTitle = "";
+  if (isAnime) {
+      displayTitle = "Anime Series";
+  } else if (isGlobal) {
+      displayTitle = type === 'movie' ? "Global Movies" : "Global TV Shows";
+  } else {
+      // Default / Asian mix
+      displayTitle = type === 'movie' ? "Asian Movies" : "Asian TV Dramas";
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 pt-24 px-3 sm:px-6 lg:px-8 pb-20 animate-fade-in">
       <div className="flex items-center justify-between mb-6 sm:mb-8 px-1">
         <h1 className="text-2xl sm:text-3xl font-bold text-white capitalize">
-          {titlePrefix} {titleType}
+          {displayTitle}
         </h1>
       </div>
 

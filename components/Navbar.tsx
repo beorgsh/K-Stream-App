@@ -7,7 +7,6 @@ import Toast from './Toast';
 const Navbar: React.FC = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   const [user, setUser] = useState<any>(null);
   
   // Profile Edit State
@@ -27,6 +26,7 @@ const Navbar: React.FC = () => {
   const location = useLocation();
 
   const isGlobal = location.pathname.startsWith('/global');
+  const searchPath = isGlobal ? '/global/search' : '/search';
 
   useEffect(() => {
     const handleScroll = () => {
@@ -47,15 +47,6 @@ const Navbar: React.FC = () => {
         unsubscribe();
     }
   }, []);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      const searchPath = isGlobal ? '/global/search' : '/search';
-      navigate(`${searchPath}?q=${encodeURIComponent(searchQuery)}`);
-      setIsMobileMenuOpen(false);
-    }
-  };
 
   const handleLogout = async () => {
       await logoutUser();
@@ -139,6 +130,7 @@ const Navbar: React.FC = () => {
     { name: 'Home', path: isGlobal ? '/global' : '/' },
     { name: 'Movies', path: isGlobal ? '/global/movies' : '/movies' },
     { name: 'TV Shows', path: isGlobal ? '/global/tv' : '/tv' },
+    { name: 'Anime', path: '/anime' },
     { name: 'Watch Party', path: '/rooms' },
   ];
 
@@ -185,18 +177,14 @@ const Navbar: React.FC = () => {
           </div>
           
           <div className="hidden md:flex items-center space-x-4">
-            <form onSubmit={handleSearch} className="relative group">
-              <input
-                type="text"
-                placeholder={isGlobal ? "Search Global..." : "Search K-Dramas..."}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={`bg-white/5 text-white border border-white/10 rounded-full py-1.5 px-4 pl-10 focus:outline-none focus:ring-2 w-64 text-sm placeholder-gray-400 transition-all ${
-                    isGlobal ? 'focus:ring-blue-500' : 'focus:ring-indigo-500'
-                } group-hover:bg-white/10`}
-              />
-              <Search className="h-4 w-4 text-gray-400 absolute left-3 top-2.5" />
-            </form>
+            {/* Search Icon Link */}
+            <Link 
+                to={searchPath}
+                className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+                aria-label="Search"
+            >
+                <Search className="h-5 w-5" />
+            </Link>
 
             {/* Mode Toggle - Desktop */}
             <Link 
@@ -251,6 +239,15 @@ const Navbar: React.FC = () => {
           </div>
 
           <div className="md:hidden flex items-center gap-2">
+            {/* Search Icon Link Mobile */}
+            <Link 
+                to={searchPath}
+                className="p-2 text-gray-300 hover:text-white"
+                aria-label="Search"
+            >
+                <Search className="h-5 w-5" />
+            </Link>
+
             {/* Mode Toggle - Mobile */}
             <Link 
                 to={isGlobal ? "/" : "/global"}
@@ -325,18 +322,6 @@ const Navbar: React.FC = () => {
                 )}
             </div>
 
-          </div>
-          <div className="px-4 pb-4">
-            <form onSubmit={handleSearch} className="relative">
-              <input
-                type="text"
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-white/5 text-white border border-white/10 rounded-lg py-2.5 px-4 pl-10 focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-gray-500"
-              />
-              <Search className="h-5 w-5 text-gray-400 absolute left-3 top-3" />
-            </form>
           </div>
         </div>
       )}

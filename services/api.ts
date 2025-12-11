@@ -8,7 +8,10 @@ const fetchFromTMDB = async <T,>(endpoint: string, params: Record<string, string
     ...params,
   });
 
-  const response = await fetch(`${TMDB_BASE_URL}${endpoint}?${queryParams}`);
+  // Decode the pipe character for multi-language queries as URLSearchParams encodes it
+  const queryString = queryParams.toString().replace(/%7C/g, '|');
+
+  const response = await fetch(`${TMDB_BASE_URL}${endpoint}?${queryString}`);
   
   if (!response.ok) {
     throw new Error(`TMDB API Error: ${response.statusText}`);
@@ -18,7 +21,7 @@ const fetchFromTMDB = async <T,>(endpoint: string, params: Record<string, string
 };
 
 // Generic Discover for Movies/TV with pagination
-export const discoverMedia = async (type: 'movie' | 'tv', page: number = 1, isGlobal: boolean = false): Promise<Media[]> => {
+export const discoverMedia = async (type: 'movie' | 'tv', page: number = 1, isGlobal: boolean = false, isAnime: boolean = false): Promise<Media[]> => {
   const endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
   const params: Record<string, string> = {
     sort_by: 'popularity.desc',
@@ -26,8 +29,12 @@ export const discoverMedia = async (type: 'movie' | 'tv', page: number = 1, isGl
     page: page.toString(),
   };
 
-  if (!isGlobal) {
-    params.with_original_language = 'ko';
+  if (isAnime) {
+      params.with_genres = '16'; // Animation
+      params.with_original_language = 'ja';
+  } else if (!isGlobal) {
+    // Mix of Korean, Chinese, Thai, Japanese (Live Action implied by lack of isAnime, but we include all here)
+    params.with_original_language = 'ko|zh|cn|th|ja';
   }
 
   const response = await fetchFromTMDB<TMDBResponse<Media>>(endpoint, params);
@@ -41,7 +48,7 @@ export const fetchTrending = async (type: 'movie' | 'tv', isGlobal: boolean = fa
   const params: Record<string, string> = {};
   
   if (!isGlobal) {
-    params.with_original_language = 'ko';
+    params.with_original_language = 'ko|zh|cn|th|ja';
     params.sort_by = 'popularity.desc';
     params['vote_count.gte'] = '50';
   }
@@ -58,12 +65,43 @@ export const fetchTopRated = async (type: 'movie' | 'tv', isGlobal: boolean = fa
   };
 
   if (!isGlobal) {
-    // For Korean specific top rated, we use discover as /movie/top_rated doesn't support region filtering effectively in one go without region param which is vague
+    // Use discover for region filtering
     return discoverMedia(type, 1, false); 
   }
 
   const response = await fetchFromTMDB<TMDBResponse<Media>>(endpoint, params);
   return response.results.map(item => ({ ...item, media_type: type }));
+};
+
+// Fetch Content by specific language (For Home Page Rows)
+export const fetchMediaByLang = async (type: 'movie' | 'tv', lang: string): Promise<Media[]> => {
+  const endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
+  const params: Record<string, string> = {
+    sort_by: 'popularity.desc',
+    'vote_count.gte': '5',
+    with_original_language: lang,
+    page: '1',
+  };
+  
+  // If fetching Japanese TV (J-Dramas), exclude animation to separate from Anime section
+  if (lang === 'ja' && type === 'tv') {
+      params.without_genres = '16'; 
+  }
+
+  const response = await fetchFromTMDB<TMDBResponse<Media>>(endpoint, params);
+  return response.results.map(item => ({ ...item, media_type: type }));
+};
+
+// Fetch Anime (Japanese Animation)
+export const fetchAnimeContent = async (): Promise<Media[]> => {
+  const response = await fetchFromTMDB<TMDBResponse<Media>>('/discover/tv', {
+    sort_by: 'popularity.desc',
+    with_genres: '16', // Animation Genre
+    with_original_language: 'ja',
+    'vote_count.gte': '5',
+    page: '1'
+  });
+  return response.results.map(item => ({ ...item, media_type: 'tv' }));
 };
 
 // Legacy support wrappers
@@ -95,7 +133,9 @@ export const searchContent = async (query: string, isGlobal: boolean = false): P
   let results = response.results.filter(item => item.media_type === 'tv' || item.media_type === 'movie');
 
   if (!isGlobal) {
-    results = results.filter((item) => item.original_language === 'ko');
+    // Include Korean, Chinese, Thai, and Japanese content
+    const asianLangs = ['ko', 'zh', 'cn', 'th', 'ja'];
+    results = results.filter((item) => asianLangs.includes(item.original_language));
   }
   
   return results;
