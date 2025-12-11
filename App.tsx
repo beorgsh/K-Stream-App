@@ -8,6 +8,8 @@ import Details from './pages/Details';
 import SearchPage from './pages/Search';
 import Category from './pages/Category';
 import Rooms from './pages/Rooms';
+import Auth from './pages/Auth';
+import NotFound from './pages/NotFound';
 
 // Simple footer component
 const Footer = () => (
@@ -39,12 +41,15 @@ const App: React.FC = () => {
             {/* Watch Party Lobby */}
             <Route path="/rooms" element={<Rooms />} />
 
+            {/* Auth */}
+            <Route path="/login" element={<Auth />} />
+
             {/* Details & Player Routes */}
             <Route path="/details/:type/:id" element={<Details />} />
             <Route path="/watch/:type/:id" element={<Watch />} />
             
-            {/* Redirect legacy or unknown routes to home */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            {/* 404 Not Found */}
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
         <Footer />

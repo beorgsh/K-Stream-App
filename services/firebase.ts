@@ -1,16 +1,23 @@
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, set, onValue, onDisconnect, remove } from 'firebase/database';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { FIREBASE_CONFIG } from '../constants';
 import { SavedRoom } from '../types';
 
 // Initialize Firebase
+let app;
 let db: any;
+let auth: any;
+
 try {
-  const app = initializeApp(FIREBASE_CONFIG);
+  app = initializeApp(FIREBASE_CONFIG);
   db = getDatabase(app);
+  auth = getAuth(app);
 } catch (e) {
   console.warn("Firebase not initialized. Check your constants.ts config.");
 }
+
+export { auth, db };
 
 export const registerRoomInLobby = (
   roomId: string, 
@@ -72,7 +79,16 @@ export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) =
     } else {
       callback([]);
     }
+  }, (error) => {
+      console.error("Error fetching rooms:", error);
+      callback([]);
   });
 
   return unsubscribe;
+};
+
+export const logoutUser = async () => {
+    if (auth) {
+        await signOut(auth);
+    }
 };

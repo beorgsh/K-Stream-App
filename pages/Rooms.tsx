@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Search, Lock, Unlock, MonitorPlay, Loader2, X, RefreshCw } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Users, Plus, Search, Lock, Unlock, MonitorPlay, Loader2, X, AlertCircle } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
 import { searchContent } from '../services/api';
-import { subscribeToActiveRooms } from '../services/firebase';
+import { subscribeToActiveRooms, auth } from '../services/firebase';
 import { Media, SavedRoom } from '../types';
 import { IMAGE_BASE_URL } from '../constants';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const Rooms: React.FC = () => {
   const navigate = useNavigate();
@@ -13,10 +14,12 @@ const Rooms: React.FC = () => {
   // Real Data State
   const [rooms, setRooms] = useState<SavedRoom[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(true);
+  
+  // Auth State
+  const [user, setUser] = useState<any>(null);
 
   // Room Creation State
   const [roomName, setRoomName] = useState('');
-  const [userName, setUserName] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
   const [password, setPassword] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
@@ -26,10 +29,18 @@ const Rooms: React.FC = () => {
   const [searchResults, setSearchResults] = useState<Media[]>([]);
   const [searching, setSearching] = useState(false);
 
+  // Subscribe to Auth
+  useEffect(() => {
+     const unsub = onAuthStateChanged(auth, (u) => {
+         setUser(u);
+     });
+     return () => unsub();
+  }, []);
+
   // Subscribe to Firebase
   useEffect(() => {
     const unsubscribe = subscribeToActiveRooms((data) => {
-      setRooms(data);
+      setRooms(data || []);
       setLoadingRooms(false);
     });
     return () => unsubscribe();
@@ -58,7 +69,7 @@ const Rooms: React.FC = () => {
   }, [mediaQuery]);
 
   const handleCreateRoom = () => {
-    if (!roomName || !selectedMedia || !userName) return;
+    if (!roomName || !selectedMedia || !user) return;
 
     // We generate the ID here or let PeerJS do it in the player. 
     // Best to let PeerJS do it, but we need to pass params to the player.
@@ -68,7 +79,7 @@ const Rooms: React.FC = () => {
     const params = new URLSearchParams({
       partyId: tempId, // This will be overwritten by PeerJS host logic usually, but we pass it for consistent routing
       partyMode: 'host',
-      name: userName,
+      name: user.displayName || 'Host',
       roomName: roomName,
       isPrivate: isPrivate.toString()
     });
@@ -81,7 +92,10 @@ const Rooms: React.FC = () => {
   };
 
   const handleJoinRoom = (room: SavedRoom) => {
-    let joinName = prompt("Enter your display name:", "Guest");
+    let joinName = user?.displayName;
+    if (!joinName) {
+        joinName = prompt("Enter your display name:", "Guest");
+    }
     if (!joinName) return;
 
     if (room.isPrivate) {
@@ -104,6 +118,14 @@ const Rooms: React.FC = () => {
     }
   };
 
+  const openCreationModal = () => {
+      if (!user) {
+          navigate('/login');
+          return;
+      }
+      setIsModalOpen(true);
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 pt-24 px-4 sm:px-6 lg:px-8 pb-20 animate-fade-in relative overflow-hidden">
       {/* Background Ambience */}
@@ -118,7 +140,7 @@ const Rooms: React.FC = () => {
           <p className="text-gray-400">Join active rooms globally or host your own screening.</p>
         </div>
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreationModal}
           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-full font-bold shadow-lg shadow-indigo-600/20 transition-all hover:scale-105"
         >
           <Plus className="h-5 w-5" />
@@ -140,7 +162,7 @@ const Rooms: React.FC = () => {
               <h3 className="text-xl font-bold text-gray-400">No Active Rooms</h3>
               <p className="text-gray-500 mb-6">Be the first to start a party!</p>
               <button
-                onClick={() => setIsModalOpen(true)}
+                onClick={openCreationModal}
                 className="px-6 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
               >
                 Create One Now
@@ -207,7 +229,7 @@ const Rooms: React.FC = () => {
       )}
 
       {/* Create Room Modal */}
-      {isModalOpen && (
+      {isModalOpen && user && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
           <div className="bg-slate-900 border border-white/10 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden relative">
             <button 
@@ -221,16 +243,12 @@ const Rooms: React.FC = () => {
                <h2 className="text-2xl font-bold text-white mb-6">Create a Party Room</h2>
                
                <div className="space-y-4 mb-6">
-                 {/* Step 1: User Identity */}
+                 {/* Step 1: User Identity (Auto-filled) */}
                  <div>
-                   <label className="block text-sm text-gray-400 mb-1">Your Name</label>
-                   <input 
-                      type="text" 
-                      value={userName}
-                      onChange={(e) => setUserName(e.target.value)}
-                      placeholder="Display Name"
-                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500"
-                   />
+                   <label className="block text-sm text-gray-400 mb-1">Host Name</label>
+                   <div className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-gray-300">
+                       {user.displayName}
+                   </div>
                  </div>
 
                  {/* Step 2: Room Name */}
@@ -322,7 +340,7 @@ const Rooms: React.FC = () => {
 
                <button 
                   onClick={handleCreateRoom}
-                  disabled={!roomName || !selectedMedia || !userName}
+                  disabled={!roomName || !selectedMedia || !user}
                   className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-600/20 active:scale-95 flex items-center justify-center gap-2"
                >
                   <MonitorPlay className="h-5 w-5" />

@@ -1,20 +1,28 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { fetchMediaDetails } from '../services/api';
 import { MediaDetails, ChatMessage } from '../types';
 import VideoPlayer, { VideoPlayerRef } from '../components/VideoPlayer';
 import SeasonSelector from '../components/SeasonSelector';
 import ChatPanel from '../components/ChatPanel';
 import { WatchSkeleton } from '../components/Skeleton';
-import { ChevronLeft, AlertCircle, MessageSquare, List, Info } from 'lucide-react';
+import { ChevronLeft, AlertCircle, MessageSquare, List, Info, Lock } from 'lucide-react';
+import { auth } from '../services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const Watch: React.FC = () => {
   const { type, id } = useParams<{ type: 'movie' | 'tv'; id: string }>();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+
   const [details, setDetails] = useState<MediaDetails | null>(null);
   const [season, setSeason] = useState(1);
   const [episode, setEpisode] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Auth State
+  const [authChecked, setAuthChecked] = useState(false);
   
   // Tab State for Mobile/Sidebar
   const [activeTab, setActiveTab] = useState<'episodes' | 'chat' | 'info'>('episodes');
@@ -29,8 +37,26 @@ const Watch: React.FC = () => {
 
   const playerRef = useRef<VideoPlayerRef>(null);
 
+  // Check if there's a party ID in URL
+  const hasPartySession = !!searchParams.get('partyId') || partyState.mode !== 'none';
+
+  // 1. Auth Guard
   useEffect(() => {
-    if (!type || !id) return;
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+        if (!user) {
+            // Not logged in -> Redirect to login
+            navigate('/login');
+        } else {
+            // Logged in -> Allow loading
+            setAuthChecked(true);
+        }
+    });
+    return () => unsubscribe();
+  }, [navigate]);
+
+  // 2. Load Content (Only after Auth Check)
+  useEffect(() => {
+    if (!authChecked || !type || !id) return;
     
     const loadDetails = async () => {
       setLoading(true);
@@ -43,9 +69,11 @@ const Watch: React.FC = () => {
         ]);
         setDetails(data);
         
-        // Default tab logic
-        if (data.media_type === 'movie') {
-            setActiveTab('chat');
+        // Default tab logic - Show chat if in party, otherwise episodes/info
+        if (hasPartySession) {
+             setActiveTab('chat');
+        } else if (data.media_type === 'movie') {
+            setActiveTab('info');
         } else {
             setActiveTab('episodes');
         }
@@ -59,9 +87,10 @@ const Watch: React.FC = () => {
       }
     };
     loadDetails();
-  }, [type, id]);
+  }, [authChecked, type, id]);
 
-  if (loading) {
+  // Show Skeleton while checking auth or loading data
+  if (!authChecked || loading) {
     return <WatchSkeleton />;
   }
 
@@ -142,12 +171,14 @@ const Watch: React.FC = () => {
                         <List className="h-4 w-4" /> Episodes
                     </button>
                 )}
-                <button 
-                    onClick={() => setActiveTab('chat')}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'chat' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-white/5'}`}
-                >
-                    <MessageSquare className="h-4 w-4" /> Watch Party
-                </button>
+                {hasPartySession && (
+                    <button 
+                        onClick={() => setActiveTab('chat')}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'chat' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-white/5'}`}
+                    >
+                        <MessageSquare className="h-4 w-4" /> Chat
+                    </button>
+                )}
                 <button 
                     onClick={() => setActiveTab('info')}
                     className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'info' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-white/5'}`}
@@ -167,11 +198,19 @@ const Watch: React.FC = () => {
                     </button>
                 )}
                 <button 
-                    onClick={() => setActiveTab('chat')}
-                    className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${activeTab === 'chat' ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-white/5'}`}
+                    onClick={() => setActiveTab('info')}
+                    className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${activeTab === 'info' ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-white/5'}`}
                 >
-                    Watch Party
+                    Info
                 </button>
+                {hasPartySession && (
+                    <button 
+                        onClick={() => setActiveTab('chat')}
+                        className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${activeTab === 'chat' ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-white/5'}`}
+                    >
+                        Chat
+                    </button>
+                )}
             </div>
 
             {/* Content Container */}
@@ -189,7 +228,7 @@ const Watch: React.FC = () => {
                 )}
 
                 {/* Chat Tab / Watch Party Dedicated Panel */}
-                {activeTab === 'chat' && (
+                {activeTab === 'chat' && hasPartySession && (
                     <ChatPanel 
                         messages={partyState.messages}
                         partyMode={partyState.mode}
@@ -201,7 +240,7 @@ const Watch: React.FC = () => {
                     />
                 )}
 
-                {/* Info Tab (Mobile Only) */}
+                {/* Info Tab */}
                 {activeTab === 'info' && (
                     <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-white/5 p-6 h-full overflow-y-auto">
                         <h3 className="text-lg font-bold text-white mb-2">Overview</h3>

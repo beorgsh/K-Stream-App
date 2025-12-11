@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MonitorPlay, Menu, X, Globe, Users } from 'lucide-react';
+import { Search, MonitorPlay, Menu, X, Globe, Users, User, LogOut } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { auth, logoutUser } from '../services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const Navbar: React.FC = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [user, setUser] = useState<any>(null);
+  
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -16,7 +20,16 @@ const Navbar: React.FC = () => {
       setIsScrolled(window.scrollY > 0);
     };
     window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    
+    // Auth Listener
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        setUser(currentUser);
+    });
+
+    return () => {
+        window.removeEventListener('scroll', handleScroll);
+        unsubscribe();
+    }
   }, []);
 
   const handleSearch = (e: React.FormEvent) => {
@@ -26,6 +39,11 @@ const Navbar: React.FC = () => {
       navigate(`${searchPath}?q=${encodeURIComponent(searchQuery)}`);
       setIsMobileMenuOpen(false);
     }
+  };
+
+  const handleLogout = async () => {
+      await logoutUser();
+      navigate('/login');
   };
 
   const navLinks = [
@@ -109,9 +127,34 @@ const Navbar: React.FC = () => {
                 </>
               )}
             </Link>
+
+            {/* Auth Button */}
+            {user ? (
+                <div className="flex items-center gap-2 group relative">
+                    <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-sm font-bold border border-white/20">
+                        {user.displayName ? user.displayName[0].toUpperCase() : 'U'}
+                    </div>
+                    {/* Hover Dropdown */}
+                    <div className="absolute right-0 top-full mt-2 w-32 bg-slate-900 border border-white/10 rounded-lg shadow-xl py-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto">
+                        <button onClick={handleLogout} className="flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-white/5 w-full text-left">
+                            <LogOut className="h-4 w-4" /> Sign Out
+                        </button>
+                    </div>
+                </div>
+            ) : (
+                <Link to="/login" className="flex items-center gap-2 text-sm font-medium text-gray-300 hover:text-white transition-colors">
+                    <User className="h-4 w-4" />
+                    Login
+                </Link>
+            )}
           </div>
 
           <div className="md:hidden flex items-center gap-2">
+             {user && (
+                 <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold border border-white/20">
+                    {user.displayName ? user.displayName[0].toUpperCase() : 'U'}
+                 </div>
+             )}
             {/* Mode Toggle - Mobile */}
             <Link 
                 to={isGlobal ? "/" : "/global"}
@@ -151,6 +194,26 @@ const Navbar: React.FC = () => {
                 {link.name}
               </Link>
             ))}
+            
+            <div className="border-t border-white/10 my-2 pt-2">
+                {!user ? (
+                    <Link
+                        to="/login"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className="text-gray-300 hover:text-white hover:bg-white/5 block px-3 py-3 rounded-md text-base font-medium flex items-center gap-2"
+                    >
+                        <User className="h-4 w-4" /> Login / Sign Up
+                    </Link>
+                ) : (
+                     <button
+                        onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }}
+                        className="text-red-400 hover:text-red-300 hover:bg-white/5 block px-3 py-3 rounded-md text-base font-medium flex items-center gap-2 w-full text-left"
+                    >
+                        <LogOut className="h-4 w-4" /> Sign Out
+                    </button>
+                )}
+            </div>
+
           </div>
           <div className="px-4 pb-4">
             <form onSubmit={handleSearch} className="relative">
