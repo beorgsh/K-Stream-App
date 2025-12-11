@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, set, onValue, onDisconnect, remove } from 'firebase/database';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, signOut, onAuthStateChanged } from 'firebase/auth';
 import { FIREBASE_CONFIG } from '../constants';
 import { SavedRoom } from '../types';
 
@@ -22,7 +22,10 @@ export { auth, db };
 // Helper to wait for auth to be ready
 const waitForAuth = (): Promise<any> => {
     return new Promise((resolve) => {
-        if (!auth) resolve(null);
+        if (!auth) {
+            resolve(null); 
+            return;
+        }
         // If currentUser is already populated, resolve immediately
         if (auth.currentUser) {
             resolve(auth.currentUser);
@@ -34,6 +37,14 @@ const waitForAuth = (): Promise<any> => {
             resolve(user);
         });
     });
+};
+
+// Ensure no undefined values are sent to Firebase (it rejects them)
+const sanitizeData = <T>(data: T): T => {
+    return JSON.parse(JSON.stringify(data, (key, value) => {
+        if (value === undefined) return null;
+        return value;
+    }));
 };
 
 export const registerRoomInLobby = async (
@@ -69,16 +80,23 @@ export const registerRoomInLobby = async (
     timestamp: Date.now(),
     users: 1, // Start with host
     isPrivate: isPrivate,
-    password: password || '', // Only stored for client-side check in this simple MVP
-    media: mediaInfo
+    password: password || '', 
+    media: {
+        ...mediaInfo,
+        poster_path: mediaInfo.poster_path || null,
+        backdrop_path: mediaInfo.backdrop_path || null
+    }
   };
 
   try {
-      await set(roomRef, roomData);
+      await set(roomRef, sanitizeData(roomData));
       // Auto-remove room when host disconnects (closes tab)
       onDisconnect(roomRef).remove();
-  } catch (error) {
+  } catch (error: any) {
       console.error("Failed to register room in DB:", error);
+      if (error.code === 'PERMISSION_DENIED') {
+          console.warn("Check your Firebase Realtime Database Rules. They might be blocking writes to /rooms.");
+      }
   }
 };
 
@@ -112,21 +130,27 @@ export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) =
       const roomsRef = ref(db, 'rooms');
       
       // Attach listener
-      unsubscribeFunc = onValue(roomsRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-          const roomList = Object.values(data) as SavedRoom[];
-          // Sort by newest
-          roomList.sort((a, b) => b.timestamp - a.timestamp);
-          callback(roomList);
-        } else {
-          callback([]);
-        }
-      }, (error) => {
-          console.error("Error fetching rooms (Subscription):", error.message);
-          // If permission denied, likely auth lost or rules strict
-          callback([]);
-      });
+      try {
+        unsubscribeFunc = onValue(roomsRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+            const roomList = Object.values(data) as SavedRoom[];
+            // Sort by newest
+            roomList.sort((a, b) => b.timestamp - a.timestamp);
+            callback(roomList);
+            } else {
+            callback([]);
+            }
+        }, (error) => {
+            console.error("Error fetching rooms (Subscription):", error.message);
+            if (error.message.includes('permission_denied')) {
+                console.warn("PERMISSION_DENIED: Check Firebase Console -> Realtime Database -> Rules. Ensure 'rooms' is readable.");
+            }
+            callback([]);
+        });
+      } catch (e) {
+          console.error("Subscription setup error", e);
+      }
   };
 
   init();

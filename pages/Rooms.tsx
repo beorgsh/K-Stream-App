@@ -73,7 +73,8 @@ const Rooms: React.FC = () => {
       }
       setSearching(true);
       try {
-        const results = await searchContent(mediaQuery, true); // Search global
+        // Enforce KDrama only search (false for isGlobal)
+        const results = await searchContent(mediaQuery, false); 
         setSearchResults(results.slice(0, 5));
       } catch (e) {
         console.error(e);
@@ -345,7 +346,7 @@ const Rooms: React.FC = () => {
                             type="text" 
                             value={mediaQuery}
                             onChange={(e) => setMediaQuery(e.target.value)}
-                            placeholder="Search movies or shows..."
+                            placeholder="Search Kdramas..."
                             className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 pl-10 text-white focus:outline-none focus:border-indigo-500"
                         />
                         <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-500" />

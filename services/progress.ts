@@ -13,8 +13,8 @@ const formatData = (data: any): StoredMediaData | null => {
         id: data.id,
         type: data.type || 'movie',
         title: data.title || 'Unknown',
-        poster_path: data.poster_path,
-        backdrop_path: data.backdrop_path,
+        poster_path: data.poster_path || null,
+        backdrop_path: data.backdrop_path || null,
         progress: {
             watched: data.progress?.watched || 0,
             duration: data.progress?.duration || 0
@@ -30,6 +30,7 @@ export const getContinueWatching = async (): Promise<Media[]> => {
   return new Promise((resolve) => {
     // Quick check if auth is ready, if not wait briefly
     const checkAuth = () => {
+        if (!auth) return Promise.resolve(null);
         if (auth.currentUser) return Promise.resolve(auth.currentUser);
         return new Promise((r) => {
              const unsub = onAuthStateChanged(auth, (u) => {
@@ -40,7 +41,7 @@ export const getContinueWatching = async (): Promise<Media[]> => {
     };
 
     checkAuth().then((user: any) => {
-        if (user) {
+        if (user && db) {
           // 1. Logged In: Fetch from Firebase Realtime DB
           const dbRef = ref(db);
           get(child(dbRef, `users/${user.uid}/progress`))
@@ -70,12 +71,18 @@ export const getContinueWatching = async (): Promise<Media[]> => {
               }
             })
             .catch((err) => {
-              // Ignore 404s or Permission Denied to prevent UI crashes
-              // console.warn("DB Fetch Warning:", err.message); 
+              // Handle 404 (Database not created or URL wrong) gracefully
+              if (err.message && err.message.includes('404')) {
+                  console.warn("Firebase DB Error (404): Ensure Realtime Database is created in Firebase Console.");
+              } else if (err.message && err.message.includes('permission_denied')) {
+                  console.warn("Firebase DB Permission Denied: Check Rules.");
+              } else {
+                  console.error("Error fetching progress from DB:", err);
+              }
               resolve([]);
             });
         } else {
-          // 2. Guest: Fetch from LocalStorage
+          // 2. Guest or No DB: Fetch from LocalStorage
           const stored = localStorage.getItem(STORAGE_KEY);
           if (!stored) {
             resolve([]);
@@ -114,8 +121,8 @@ export const saveProgress = async (rawData: any) => {
     if (!formatted) return;
 
     // Check auth state properly before deciding storage
-    let user = auth.currentUser;
-    if (!user) {
+    let user = auth?.currentUser;
+    if (auth && !user) {
         // Wait for auth to settle if it's in initial loading state
         user = await new Promise(resolve => {
              const unsub = onAuthStateChanged(auth, (u) => {
@@ -127,20 +134,27 @@ export const saveProgress = async (rawData: any) => {
 
     const key = `${formatted.type === 'movie' ? 'm' : 't'}${formatted.id}`;
 
-    if (user) {
+    // Sanitize undefineds
+    const safeData = JSON.parse(JSON.stringify(formatted, (k, v) => v === undefined ? null : v));
+
+    if (user && db) {
         // Save to Firebase (User Specific)
         // @ts-ignore
-        set(ref(db, `users/${user.uid}/progress/${key}`), formatted)
+        set(ref(db, `users/${user.uid}/progress/${key}`), safeData)
         .catch(err => {
             // Silently fail or log warning if DB is unreachable/404
-            console.warn("Sync failed (DB):", err.message);
+             if (err.message && err.message.includes('404')) {
+                  console.warn("Sync failed: Database 404 (Check URL/Creation)");
+             } else {
+                  console.warn("Sync failed (DB):", err.message);
+             }
         });
     } else {
         // Save to LocalStorage (Guest)
         try {
             const stored = localStorage.getItem(STORAGE_KEY);
             const current = stored ? JSON.parse(stored) : {};
-            current[key] = formatted;
+            current[key] = safeData;
             localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
         } catch (e) {
             console.error("Failed to save local progress", e);
