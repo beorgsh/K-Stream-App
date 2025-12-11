@@ -5,7 +5,6 @@ import { HomeSkeleton } from '../components/Skeleton';
 import { fetchTrendingKDramas, fetchPopularKMovies, fetchTopRatedKDramas } from '../services/api';
 import { getContinueWatching } from '../services/progress';
 import { auth } from '../services/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
 import { Media } from '../types';
 
 const Home: React.FC = () => {
@@ -43,7 +42,7 @@ const Home: React.FC = () => {
 
   // Load User Specific Progress (Re-runs on login/logout)
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
         // Fetch progress based on auth state (Handled inside getContinueWatching)
         const progressData = await getContinueWatching();
         setContinueWatching(progressData);

@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import Peer from 'peerjs';
-import { Loader2, LogOut, Users, MessageSquare, List, RefreshCw, AlertTriangle, Play } from 'lucide-react';
+import { Loader2, LogOut, Users, MessageSquare, List, RefreshCw, AlertTriangle, Play, Wifi, WifiOff } from 'lucide-react';
 import VideoPlayer, { VideoPlayerRef } from '../components/VideoPlayer';
 import ChatPanel from '../components/ChatPanel';
 import SeasonSelector from '../components/SeasonSelector';
 import { fetchMediaDetails } from '../services/api';
-import { registerRoomInLobby, removeRoomFromLobby, subscribeToChat, sendChatMessage } from '../services/firebase';
+import { registerRoomInLobby, removeRoomFromLobby, subscribeToChat, sendChatMessage, updateRoomSync, subscribeToRoomSync } from '../services/firebase';
 import { ChatMessage, MediaDetails } from '../types';
 
 const WatchParty: React.FC = () => {
@@ -27,9 +27,9 @@ const WatchParty: React.FC = () => {
   const [status, setStatus] = useState('Initializing...');
   const [activeTab, setActiveTab] = useState<'chat' | 'episodes'>('chat');
   const [showLeaveModal, setShowLeaveModal] = useState(false);
+  const [p2pConnected, setP2pConnected] = useState(false);
   
   // Interaction State (Required for Autoplay Audio on Mobile/Chrome)
-  // Host has already interacted by creating room. Guests need to tap once.
   const [hasInteracted, setHasInteracted] = useState(partyMode === 'host');
   
   // Media State
@@ -47,6 +47,7 @@ const WatchParty: React.FC = () => {
   const peerInstance = useRef<Peer | null>(null);
   const connections = useRef<any[]>([]); // For Host
   const hostConn = useRef<any>(null); // For Client
+  const lastSyncTime = useRef<number>(0); // Debounce syncs
 
   // --- Initialization ---
 
@@ -62,13 +63,20 @@ const WatchParty: React.FC = () => {
         try {
             const mediaData = await fetchMediaDetails(type, tmdbId);
             setDetails(mediaData);
+            
+            // For Clients, we stop loading here to allow UI to render immediately
+            // Connectivity (P2P/Firebase) happens in background
+            if (partyMode === 'client') {
+                setLoading(false);
+                setPeerId(partyId || '');
+            }
         } catch (e) {
             alert("Failed to load media.");
             navigate('/');
             return;
         }
 
-        // 2. Setup PeerJS (Video Sync Only)
+        // 2. Setup Connectivity
         if (partyMode === 'host') {
             setupHost();
         } else {
@@ -88,20 +96,60 @@ const WatchParty: React.FC = () => {
     };
   }, []);
 
-  // --- Firebase Chat Subscription ---
+  // --- Firebase Subscriptions ---
   useEffect(() => {
     if (!peerId) return;
     
-    // Subscribe to Firebase Chat for this room
-    const unsubscribe = subscribeToChat(peerId, (msgs) => {
-        setMessages(msgs);
+    // 1. Chat
+    const unsubChat = subscribeToChat(peerId, (msgs) => setMessages(msgs));
+
+    // 2. Sync (Relay Fallback) - Crucial for "Different Network" support
+    const unsubSync = subscribeToRoomSync(peerId, (syncState) => {
+        // Host ignores own echo, Clients process it
+        if (partyMode === 'client' && syncState) {
+            // Check for stale events (older than 2 seconds)
+            // But if it's a state change (Season/Ep), always apply
+            
+            // Media Change
+            if (syncState.media) {
+                if (syncState.media.season !== season || syncState.media.episode !== episode) {
+                    setSeason(syncState.media.season);
+                    setEpisode(syncState.media.episode);
+                }
+            }
+
+            // Playback Sync
+            if (syncState.action) {
+                // Calculate latency compensation
+                // timestamp comes from Host's Date.now()
+                const latency = Math.max(0, (Date.now() - syncState.timestamp) / 1000);
+                const adjustedTime = syncState.time + (syncState.action === 'play' ? latency : 0);
+                
+                // Debounce redundant updates (e.g. if P2P also delivered it)
+                if (Date.now() - lastSyncTime.current < 500) return;
+                lastSyncTime.current = Date.now();
+
+                // Apply
+                if (syncState.action === 'play') {
+                    playerRef.current?.seek(adjustedTime);
+                    setTimeout(() => playerRef.current?.play(), 100);
+                } else if (syncState.action === 'pause') {
+                    playerRef.current?.pause();
+                    playerRef.current?.seek(syncState.time);
+                } else if (syncState.action === 'seek') {
+                    playerRef.current?.seek(syncState.time);
+                }
+            }
+        }
     });
 
-    return () => unsubscribe();
-  }, [peerId]);
+    return () => {
+        unsubChat();
+        unsubSync();
+    };
+  }, [peerId, partyMode, season, episode]);
 
-  // --- Peer Config for better Mobile Connectivity ---
-  // Adding multiple free public STUN servers to increase chance of NAT traversal on mobile data
+  // --- Peer Config ---
   const getPeerConfig = () => ({
       config: {
           iceServers: [
@@ -109,9 +157,7 @@ const WatchParty: React.FC = () => {
               { urls: 'stun:stun1.l.google.com:19302' },
               { urls: 'stun:stun2.l.google.com:19302' },
               { urls: 'stun:stun3.l.google.com:19302' },
-              { urls: 'stun:stun4.l.google.com:19302' },
-              { urls: 'stun:stun.ekiga.net' },
-              { urls: 'stun:stun.ideasip.com' },
+              { urls: 'stun:stun4.l.google.com:19302' }
           ]
       }
   });
@@ -127,8 +173,8 @@ const WatchParty: React.FC = () => {
       peer.on('open', (id) => {
           setPeerId(id);
           setLoading(false);
+          setP2pConnected(true);
           
-          // Register in Lobby
           const roomName = searchParams.get('roomName') || `${username}'s Room`;
           const isPrivate = searchParams.get('isPrivate') === 'true';
           const password = searchParams.get('password') || undefined;
@@ -144,47 +190,35 @@ const WatchParty: React.FC = () => {
               }
           );
           
-          addSystemMessage(`Room created. Chat is now live.`);
+          addSystemMessage(`Room created. Relay active.`);
+          
+          // Initialize Firebase Sync State
+          updateRoomSync(id, { media: { season, episode }, timestamp: Date.now() });
       });
 
       peer.on('connection', (conn) => {
           connections.current.push(conn);
           setUserCount(prev => prev + 1);
-          
           conn.on('open', () => {
-             // Send current media state to new user (P2P for sync)
+             // Initial P2P Sync
              conn.send({ type: 'media_change', data: { season, episode } });
-             addSystemMessage(`${conn.metadata?.name || 'A user'} joined.`);
-             
-             // Auto-sync: Send a 'play' command shortly after they join to force alignment
-             // if the host is currently playing.
-             setTimeout(() => {
-                 conn.send({ type: 'request_sync_response', data: { action: 'play', time: 0 } });
-             }, 2000);
+             playerRef.current?.getStatus();
+             addSystemMessage(`${conn.metadata?.name || 'A user'} joined via P2P.`);
           });
-
-          // Handle Manual Sync Request from Client
           conn.on('data', (data: any) => {
-              if (data && data.type === 'request_sync') {
-                  // Simply pause and play to force everyone to align to host
-                  playerRef.current?.pause(); 
-                  setTimeout(() => playerRef.current?.play(), 500);
-              }
+              if (data?.type === 'request_sync') playerRef.current?.getStatus();
           });
-
           conn.on('close', () => {
              connections.current = connections.current.filter(c => c !== conn);
              setUserCount(prev => prev - 1);
-             addSystemMessage("A user left.");
           });
       });
       
       peer.on('error', (err) => {
-          console.error(err);
-          // Don't alert on peer-unavailable (client refresh), just log
-          if (err.type !== 'peer-unavailable') {
-             // Suppress annoying alerts for host
-             console.warn("Host Peer Error:", err.type);
+          console.warn("Host Peer Error:", err.type);
+          if (err.type === 'network' || err.type === 'disconnected') {
+              setP2pConnected(false);
+              addSystemMessage("P2P Network Issue. Switching to Relay-only.");
           }
       });
   };
@@ -192,12 +226,8 @@ const WatchParty: React.FC = () => {
   // --- Client Logic ---
 
   const setupClient = () => {
-      setStatus('Connecting to Host...');
-      if (!partyId) {
-          alert("No Party ID provided");
-          navigate('/');
-          return;
-      }
+      // Note: loading is already false at this point for UI responsiveness
+      if (!partyId) return;
 
       const peer = new Peer(getPeerConfig());
       peerInstance.current = peer;
@@ -210,85 +240,80 @@ const WatchParty: React.FC = () => {
           hostConn.current = conn;
 
           conn.on('open', () => {
-              setLoading(false);
+              setP2pConnected(true);
               setStatus('Connected');
-              setPeerId(partyId);
+              // Request immediate sync
+              conn.send({ type: 'request_sync' });
           });
 
-          conn.on('data', (data) => handleSyncData(data));
+          conn.on('data', (data) => handleP2PSync(data));
+          conn.on('close', () => setP2pConnected(false));
           
-          conn.on('close', () => {
-              alert("Host disconnected the room.");
-              navigate('/');
-          });
-          
-          // If connection takes too long
           setTimeout(() => {
               if (!conn.open) {
-                   setStatus('Connection timed out. Try switching networks (WiFi vs Data).');
+                   console.warn("P2P Timeout - Using Firebase Relay");
+                   setStatus('Connected (Relay Mode)');
               }
-          }, 15000); // Increased timeout for mobile
+          }, 5000);
       });
 
       peer.on('error', (err) => {
-           console.error(err);
-           alert("Could not connect. The host might be on a restricted network.");
-           navigate('/rooms');
+           console.warn("Client Peer Error:", err.type);
+           setP2pConnected(false);
+           setStatus('Connected (Relay Mode)');
       });
   };
 
   const handleManualResync = () => {
+      // 1. Try P2P
       if (partyMode === 'client' && hostConn.current?.open) {
           hostConn.current.send({ type: 'request_sync' });
-          addSystemMessage("Requested resync from host...");
       }
+      // 2. Client doesn't write to Sync State, but Host sees the request? 
+      // Actually, if P2P is dead, Client can't ask Host to seek via P2P.
+      // But they are listening to Firebase.
+      // So if they are out of sync, they just wait for next Host event OR we can just reload the page/seek manually to guess.
+      addSystemMessage("Syncing...");
   };
 
-  const handleLeaveClick = () => {
-      setShowLeaveModal(true);
-  };
-
-  const confirmLeave = () => {
-      navigate('/rooms');
-  };
+  const handleLeaveClick = () => setShowLeaveModal(true);
+  const confirmLeave = () => navigate('/rooms');
 
   const handleInteraction = () => {
       setHasInteracted(true);
-      // If we are already connected, request a sync immediately after interaction
-      if (partyMode === 'client' && hostConn.current?.open) {
-          handleManualResync();
-      }
+      if (partyMode === 'client') handleManualResync();
   };
 
-  // --- Sync Handling (PeerJS) ---
+  // --- Sync Handling ---
 
-  const handleSyncData = (packet: any, senderConn?: any) => {
+  // P2P Handler
+  const handleP2PSync = (packet: any) => {
       if (!packet) return;
+      lastSyncTime.current = Date.now(); // Mark P2P activity to prevent double-sync
 
-      // 2. Sync (Client Only - Receiving from Host)
-      if (partyMode === 'client' && (packet.type === 'sync' || packet.type === 'request_sync_response')) {
-          const { action, time } = packet.data;
-          
-          // IMPORTANT: If user hasn't interacted, browser might block play() with sound.
-          // The overlay ensures hasInteracted is true before they see this.
-          
-          if (action === 'play') playerRef.current?.play(time);
-          if (action === 'pause') playerRef.current?.pause(time);
-          if (action === 'seek') playerRef.current?.seek(time);
+      if (packet.type === 'sync') {
+          const { action, time, isAbsolute } = packet.data;
+          if (isAbsolute) {
+             playerRef.current?.seek(time);
+             setTimeout(() => {
+                 if (action === 'play') playerRef.current?.play();
+                 else playerRef.current?.pause();
+             }, 500);
+          } else {
+             if (action === 'play') playerRef.current?.play(time);
+             if (action === 'pause') playerRef.current?.pause(time);
+             if (action === 'seek') playerRef.current?.seek(time);
+          }
       }
-
-      // 3. Media Change (Client Only)
-      if (partyMode === 'client' && packet.type === 'media_change') {
+      if (packet.type === 'media_change') {
           setSeason(packet.data.season);
           setEpisode(packet.data.episode);
       }
   };
 
-  const broadcastSync = (packet: any, excludeConn?: any) => {
+  const broadcastP2P = (packet: any) => {
       connections.current.forEach(conn => {
-          if (conn.open && conn !== excludeConn) {
-              conn.send(packet);
-          }
+          if (conn.open) conn.send(packet);
       });
   };
 
@@ -296,41 +321,58 @@ const WatchParty: React.FC = () => {
 
   const sendMessage = (text: string) => {
       if (!peerId) return;
-
       const msg: ChatMessage = {
           id: Date.now().toString() + Math.random().toString(),
           text,
           sender: username,
           timestamp: Date.now()
       };
-      
-      // Send to Firebase
       sendChatMessage(peerId, msg);
   };
 
   const addSystemMessage = (text: string) => {
       if (!peerId) return;
-      const msg: ChatMessage = {
+      sendChatMessage(peerId, {
           id: Date.now().toString() + Math.random(),
           text,
           sender: 'System',
           timestamp: Date.now(),
           isSystem: true
-      };
-      sendChatMessage(peerId, msg);
+      });
   };
 
-  // Host Player Events
-  const onHostPlayerEvent = (event: { action: 'play'|'pause'|'seek', time: number }) => {
+  // Host Player Events -> Broadcast to ALL channels
+  const onHostPlayerEvent = (event: { action: 'play'|'pause'|'seek'|'sync', time: number, playing?: boolean }) => {
       if (partyMode !== 'host') return;
-      broadcastSync({ type: 'sync', data: event });
+
+      // 1. P2P Broadcast (Fastest)
+      if (event.action === 'sync') {
+          broadcastP2P({ 
+              type: 'sync', 
+              data: { action: event.playing ? 'play' : 'pause', time: event.time, isAbsolute: true } 
+          });
+      } else {
+          broadcastP2P({ type: 'sync', data: event });
+      }
+
+      // 2. Firebase Broadcast (Reliable Fallback)
+      // We map the event to a persistent state
+      const actionMap = event.action === 'sync' ? (event.playing ? 'play' : 'pause') : event.action;
+      
+      updateRoomSync(peerId, {
+          action: actionMap,
+          time: event.time,
+          timestamp: Date.now(),
+          media: { season, episode }
+      });
   };
 
   const changeEpisode = (s: number, e: number) => {
       setSeason(s);
       setEpisode(e);
       if (partyMode === 'host') {
-          broadcastSync({ type: 'media_change', data: { season: s, episode: e } });
+          broadcastP2P({ type: 'media_change', data: { season: s, episode: e } });
+          updateRoomSync(peerId, { media: { season: s, episode: e }, timestamp: Date.now() });
       }
   };
 
@@ -341,18 +383,14 @@ const WatchParty: React.FC = () => {
           <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
               <Loader2 className="h-12 w-12 text-indigo-500 animate-spin mb-4" />
               <h2 className="text-xl font-bold text-white mb-2">{status}</h2>
-              {status.includes('timed out') && (
-                  <div className="mt-4 space-y-3">
-                      <p className="text-gray-400 text-sm">Mobile networks often block P2P connections.</p>
-                      <p className="text-gray-400 text-sm">Try connecting both devices to the same WiFi.</p>
-                      <button onClick={() => window.location.reload()} className="px-4 py-2 bg-indigo-600 rounded text-white text-sm">Retry Connection</button>
-                  </div>
+              {partyMode === 'client' && (
+                 <p className="text-sm text-gray-500">Connecting to secure relay...</p>
               )}
           </div>
       );
   }
 
-  // --- Interaction Overlay for Autoplay Audio ---
+  // Interaction Overlay
   if (!hasInteracted && partyMode === 'client') {
       return (
           <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
@@ -374,7 +412,7 @@ const WatchParty: React.FC = () => {
                   <h1 className="text-3xl font-bold text-white mb-2">Ready to Watch?</h1>
                   <h2 className="text-xl text-indigo-300 font-semibold mb-6">{details.title || details.name}</h2>
                   <p className="text-gray-400 mb-8">
-                      Tap below to join the party and enable audio sync.
+                      Tap below to sync with the party.
                   </p>
                   <button 
                     onClick={handleInteraction}
@@ -409,6 +447,12 @@ const WatchParty: React.FC = () => {
             </div>
             
             <div className="flex items-center gap-2 lg:gap-4">
+                {/* Connection Status Indicator */}
+                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full border text-[10px] font-bold ${p2pConnected ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'}`} title={p2pConnected ? 'P2P Direct Connection' : 'Firebase Relay Mode'}>
+                    {p2pConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+                    <span className="hidden sm:inline">{p2pConnected ? 'Direct' : 'Relay'}</span>
+                </div>
+
                 <div className="flex items-center gap-2 text-xs lg:text-sm text-gray-400 bg-black/20 px-3 py-1.5 rounded-full">
                     <Users className="h-3 w-3 lg:h-4 lg:w-4" />
                     <span>{userCount}</span>
@@ -479,7 +523,7 @@ const WatchParty: React.FC = () => {
                 </div>
                 {!isHost && (
                     <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur text-white text-[10px] lg:text-xs px-3 py-1 rounded-full pointer-events-none border border-white/10">
-                        Syncing with Host...
+                        Syncing...
                     </div>
                 )}
             </div>

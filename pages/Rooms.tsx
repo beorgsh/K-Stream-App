@@ -5,7 +5,6 @@ import { searchContent } from '../services/api';
 import { subscribeToActiveRooms, auth } from '../services/firebase';
 import { Media, SavedRoom } from '../types';
 import { IMAGE_BASE_URL } from '../constants';
-import { onAuthStateChanged } from 'firebase/auth';
 
 const Rooms: React.FC = () => {
   const navigate = useNavigate();
@@ -40,7 +39,7 @@ const Rooms: React.FC = () => {
 
   // Subscribe to Auth
   useEffect(() => {
-     const unsub = onAuthStateChanged(auth, (u) => {
+     const unsub = auth.onAuthStateChanged((u) => {
          setUser(u);
          setAuthChecking(false);
          if (!u) {

@@ -1,0 +1,27 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        "progress": {
+          ".read": "$uid === auth.uid",
+          ".write": "$uid === auth.uid"
+        }
+      }
+    },
+    "rooms": {
+      ".read": true,
+      "$roomId": {
+        ".write": "auth != null",
+        "sync": {
+           ".write": "auth != null"
+        }
+      }
+    },
+    "chats": {
+      ".read": true,
+      "$roomId": {
+        ".write": "auth != null"
+      }
+    }
+  }
+}

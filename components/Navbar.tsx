@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Search, MonitorPlay, Menu, X, Globe, Users, User, LogOut } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { auth, logoutUser } from '../services/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
 
 const Navbar: React.FC = () => {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -22,7 +21,7 @@ const Navbar: React.FC = () => {
     window.addEventListener('scroll', handleScroll);
     
     // Auth Listener
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = auth.onAuthStateChanged((currentUser) => {
         setUser(currentUser);
     });
 

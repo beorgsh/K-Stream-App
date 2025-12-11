@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { auth } from '../services/firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, User, ShieldCheck, Loader2 } from 'lucide-react';
 import Toast from '../components/Toast';
@@ -56,10 +55,10 @@ const Auth: React.FC = () => {
 
     try {
       if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
+        await auth.signInWithEmailAndPassword(email, password);
       } else {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(userCredential.user, {
+        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+        await userCredential.user?.updateProfile({
             displayName: username
         });
       }

@@ -1,8 +1,11 @@
 import { db, waitForAuth } from './firebase';
-import { ref, set, get, child } from 'firebase/database';
 import { Media, StoredMediaData } from '../types';
 
 const STORAGE_KEY = 'vidFastProgress';
+const DEBOUNCE_MS = 3000; // Save max once every 3 seconds
+
+// In-memory debounce timers
+const saveTimers: Record<string, any> = {};
 
 // Format raw player data to clean structure
 const formatData = (data: any): StoredMediaData | null => {
@@ -31,7 +34,7 @@ export const getContinueWatching = async (): Promise<Media[]> => {
   // 1. If Authenticated: Fetch ONLY from Firebase DB
   if (user && db) {
       try {
-          const snapshot = await get(child(ref(db), `users/${user.uid}/progress`));
+          const snapshot = await db.ref(`users/${user.uid}/progress`).once('value');
           if (snapshot.exists()) {
             const data = snapshot.val();
             const formatted = Object.values(data)
@@ -103,25 +106,34 @@ export const saveProgress = async (rawData: any) => {
     if (!formatted) return;
 
     const key = `${formatted.type === 'movie' ? 'm' : 't'}${formatted.id}`;
-    const safeData = JSON.parse(JSON.stringify(formatted, (k, v) => v === undefined ? null : v));
-
-    const user = await waitForAuth();
-
-    if (user && db) {
-        // A. Logged In: Save to Firebase DB ONLY
-        set(ref(db, `users/${user.uid}/progress/${key}`), safeData)
-        .catch(err => {
-             console.error("Database save failed:", err.message);
-        });
-    } else {
-        // B. Guest: Save to Local Storage ONLY
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            const current = stored ? JSON.parse(stored) : {};
-            current[key] = safeData;
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-        } catch (e) {
-            console.error("Local save failed", e);
-        }
+    
+    // Clear existing timer for this media
+    if (saveTimers[key]) {
+        clearTimeout(saveTimers[key]);
     }
+
+    // Debounce: Wait DEBOUNCE_MS before actually saving
+    saveTimers[key] = setTimeout(async () => {
+        const safeData = JSON.parse(JSON.stringify(formatted, (k, v) => v === undefined ? null : v));
+        const user = await waitForAuth();
+
+        if (user && db) {
+            // A. Logged In: Save to Firebase DB ONLY
+            db.ref(`users/${user.uid}/progress/${key}`).set(safeData)
+            .catch((err: any) => {
+                console.error("Database save failed:", err.message);
+            });
+        } else {
+            // B. Guest: Save to Local Storage ONLY
+            try {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                const current = stored ? JSON.parse(stored) : {};
+                current[key] = safeData;
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+            } catch (e) {
+                console.error("Local save failed", e);
+            }
+        }
+        delete saveTimers[key];
+    }, DEBOUNCE_MS);
 };

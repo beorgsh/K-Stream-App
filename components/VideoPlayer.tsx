@@ -11,7 +11,7 @@ interface VideoPlayerProps {
   posterPath?: string | null;
   backdropPath?: string | null;
   // Callback when the player emits an event (only relevant for Host)
-  onPlayerEvent?: (event: { action: 'play' | 'pause' | 'seek', time: number }) => void;
+  onPlayerEvent?: (event: { action: 'play' | 'pause' | 'seek' | 'sync', time: number, playing?: boolean }) => void;
   isHost?: boolean; // If false, we ignore internal events to prevent feedback loops
   enableProgressSave?: boolean; // New Prop: defaults to true
 }
@@ -20,6 +20,7 @@ export interface VideoPlayerRef {
   play: (time?: number) => void;
   pause: (time?: number) => void;
   seek: (time: number) => void;
+  getStatus: () => void;
 }
 
 const VIDFAST_ORIGINS = [
@@ -62,6 +63,11 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
         isSyncing.current = true;
         iframeRef.current.contentWindow?.postMessage({ command: 'seek', time }, '*');
         setTimeout(() => { isSyncing.current = false; }, 1000);
+    },
+    getStatus: () => {
+        if (!iframeRef.current) return;
+        // getStatus is a read operation, doesn't need isSyncing lock
+        iframeRef.current.contentWindow?.postMessage({ command: 'getStatus' }, '*');
     }
   }));
 
@@ -108,9 +114,10 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
             
             // If this event happened because we just received a sync command, ignore it
             // to prevent an infinite loop (Echo cancellation).
-            if (isSyncing.current) return;
+            // EXCEPTION: 'playerstatus' is a response to getStatus, we always want it.
+            if (isSyncing.current && data.data.event !== 'playerstatus') return;
 
-            const { event, currentTime } = data.data;
+            const { event, currentTime, playing } = data.data;
 
             if (event === 'play') {
                 onPlayerEvent?.({ action: 'play', time: currentTime });
@@ -118,6 +125,13 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
                 onPlayerEvent?.({ action: 'pause', time: currentTime });
             } else if (event === 'seeked') {
                 onPlayerEvent?.({ action: 'seek', time: currentTime });
+            } else if (event === 'playerstatus') {
+                // Return full status for absolute syncing
+                onPlayerEvent?.({ 
+                    action: 'sync', 
+                    time: currentTime, 
+                    playing: playing 
+                });
             }
         }
     };
