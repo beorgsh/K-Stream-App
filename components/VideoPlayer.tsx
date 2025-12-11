@@ -41,6 +41,10 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   const [src, setSrc] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
   
+  // Track playback state locally for progress saving
+  const lastTimeRef = useRef(0);
+  const durationRef = useRef(0);
+  
   // Flag to differentiate between user actions and programmatic sync commands
   const isSyncing = useRef(false);
 
@@ -74,14 +78,15 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   // --- Load Iframe ---
   useEffect(() => {
     let url = '';
-    // CHANGE: Set autoPlay to true. The parent component will handle the "User Interaction" check
-    // to ensure sound works.
     const params = new URLSearchParams({
       autoPlay: 'true', 
       theme: THEME_COLOR,
       poster: 'true',
       title: 'true',
       hideServerControls: 'false',
+      caption: 'en',
+      sub: 'en',
+      lang: 'en'
     });
 
     if (type === 'movie') {
@@ -93,57 +98,74 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     }
     
     setSrc(url);
+    
+    // Reset refs on source change
+    lastTimeRef.current = 0;
+    durationRef.current = 0;
   }, [tmdbId, type, season, episode]);
 
   // --- Event Listeners (VidFast Communication) ---
   useEffect(() => {
     const handleMessage = ({ origin, data }: MessageEvent) => {
-        // 1. Security Check
         const isVidFast = VIDFAST_ORIGINS.some(o => origin.includes(o) || origin === o);
         if (!data) return;
 
-        // 2. Progress Saving 
-        // Only save if prop is enabled (Default true, False for Watch Party)
-        if (data.type === 'MEDIA_DATA' && enableProgressSave) {
-            // CRITICAL FIX: Override the ID and metadata from props to ensure consistency
-            // VidFast might send internal IDs, so we enforce our TMDB ID here.
-            const cleanData = {
-                ...data.data,
-                id: tmdbId, // Force correct TMDB ID
-                type: type, // Force correct Type
-                title: mediaTitle || data.data.title,
-                poster_path: posterPath || data.data.poster_path,
-                backdrop_path: backdropPath || data.data.backdrop_path,
-                last_season_watched: season,
-                last_episode_watched: episode
-            };
-            saveProgress(cleanData);
+        // 1. Capture Metadata if available
+        if (data.type === 'MEDIA_DATA') {
+            if (data.data?.progress?.duration) {
+                durationRef.current = data.data.progress.duration;
+            }
         }
 
-        // 3. Player Events -> Send to Parent (Only if Host)
-        // If I am a guest, I ignore my own player events, I only obey the host.
-        if (data.type === 'PLAYER_EVENT' && isHost) {
-            
-            // If this event happened because we just received a sync command, ignore it
-            // to prevent an infinite loop (Echo cancellation).
-            // EXCEPTION: 'playerstatus' is a response to getStatus, we always want it.
-            if (isSyncing.current && data.data.event !== 'playerstatus') return;
+        // 2. Handle Player Events (Time Updates & Host Events)
+        if (data.type === 'PLAYER_EVENT') {
+            const { event, currentTime, duration, playing } = data.data;
 
-            const { event, currentTime, playing } = data.data;
+            // Update duration if provided
+            if (duration) durationRef.current = duration;
 
-            if (event === 'play') {
-                onPlayerEvent?.({ action: 'play', time: currentTime });
-            } else if (event === 'pause') {
-                onPlayerEvent?.({ action: 'pause', time: currentTime });
-            } else if (event === 'seeked') {
-                onPlayerEvent?.({ action: 'seek', time: currentTime });
-            } else if (event === 'playerstatus') {
-                // Return full status for absolute syncing
-                onPlayerEvent?.({ 
-                    action: 'sync', 
-                    time: currentTime, 
-                    playing: playing 
-                });
+            // --- PROGRESS SAVING (Fixed) ---
+            // We listen for 'timeupdate' (or any event with time) to save progress
+            // We rely on 'enableProgressSave' prop.
+            if (enableProgressSave && currentTime > 0) {
+                 lastTimeRef.current = currentTime;
+                 const progressData = {
+                    id: tmdbId,
+                    type: type,
+                    title: mediaTitle || 'Unknown',
+                    poster_path: posterPath,
+                    backdrop_path: backdropPath,
+                    last_season_watched: season,
+                    last_episode_watched: episode,
+                    progress: {
+                        watched: currentTime,
+                        duration: durationRef.current || 0
+                    }
+                 };
+                 saveProgress(progressData);
+            }
+
+            // --- HOST EVENTS (Watch Party) ---
+            if (isHost) {
+                if (isSyncing.current && event !== 'playerstatus') return;
+
+                if (event === 'play') {
+                    onPlayerEvent?.({ action: 'play', time: currentTime });
+                } else if (event === 'pause') {
+                    onPlayerEvent?.({ action: 'pause', time: currentTime });
+                } else if (event === 'seeked') {
+                    onPlayerEvent?.({ action: 'seek', time: currentTime });
+                } else if (event === 'playerstatus' || event === 'timeupdate') {
+                    // For timeupdate, we only sync if needed, usually we don't broadcast every tick
+                    // But 'playerstatus' is explicitly requested by getStatus()
+                    if (event === 'playerstatus') {
+                        onPlayerEvent?.({ 
+                            action: 'sync', 
+                            time: currentTime, 
+                            playing: playing 
+                        });
+                    }
+                }
             }
         }
     };

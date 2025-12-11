@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import Peer from 'peerjs';
-import { Loader2, LogOut, Users, MessageSquare, List, RefreshCw, AlertTriangle, Play, Wifi, WifiOff } from 'lucide-react';
+import { Loader2, LogOut, Users, MessageSquare, List, RefreshCw, AlertTriangle, Play, Wifi, WifiOff, Maximize, Minimize, MessageSquareOff } from 'lucide-react';
 import VideoPlayer, { VideoPlayerRef } from '../components/VideoPlayer';
 import ChatPanel from '../components/ChatPanel';
 import SeasonSelector from '../components/SeasonSelector';
@@ -29,6 +29,10 @@ const WatchParty: React.FC = () => {
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [p2pConnected, setP2pConnected] = useState(false);
   
+  // Fullscreen & UI State
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showChatOverlay, setShowChatOverlay] = useState(true);
+  
   // Interaction State (Required for Autoplay Audio on Mobile/Chrome)
   const [hasInteracted, setHasInteracted] = useState(partyMode === 'host');
   
@@ -47,7 +51,9 @@ const WatchParty: React.FC = () => {
   const peerInstance = useRef<Peer | null>(null);
   const connections = useRef<any[]>([]); // For Host
   const hostConn = useRef<any>(null); // For Client
-  const lastSyncTime = useRef<number>(0); // Debounce syncs
+  const lastSyncTime = useRef<number>(0); // Debounce syncs INCOMING
+  const firebaseSyncDebounceTimer = useRef<any>(null); // Debounce syncs OUTGOING (Host)
+  const containerRef = useRef<HTMLDivElement>(null); // For Fullscreen
 
   // --- Initialization ---
 
@@ -94,6 +100,15 @@ const WatchParty: React.FC = () => {
             peerInstance.current.destroy();
         }
     };
+  }, []);
+
+  // Listen for Fullscreen Changes
+  useEffect(() => {
+      const handleFsChange = () => {
+          setIsFullscreen(!!document.fullscreenElement);
+      };
+      document.addEventListener('fullscreenchange', handleFsChange);
+      return () => document.removeEventListener('fullscreenchange', handleFsChange);
   }, []);
 
   // --- Firebase Subscriptions ---
@@ -186,7 +201,7 @@ const WatchParty: React.FC = () => {
                   type: type, 
                   title: searchParams.get('title') || 'Unknown', 
                   poster_path: searchParams.get('poster') || null, 
-                  backdrop_path: null 
+                  backdrop_path: searchParams.get('backdrop') || null 
               }
           );
           
@@ -269,10 +284,6 @@ const WatchParty: React.FC = () => {
       if (partyMode === 'client' && hostConn.current?.open) {
           hostConn.current.send({ type: 'request_sync' });
       }
-      // 2. Client doesn't write to Sync State, but Host sees the request? 
-      // Actually, if P2P is dead, Client can't ask Host to seek via P2P.
-      // But they are listening to Firebase.
-      // So if they are out of sync, they just wait for next Host event OR we can just reload the page/seek manually to guess.
       addSystemMessage("Syncing...");
   };
 
@@ -282,6 +293,16 @@ const WatchParty: React.FC = () => {
   const handleInteraction = () => {
       setHasInteracted(true);
       if (partyMode === 'client') handleManualResync();
+  };
+
+  const toggleFullscreen = () => {
+      if (!document.fullscreenElement) {
+          containerRef.current?.requestFullscreen().catch(err => {
+              console.error("Error attempting to enable fullscreen:", err);
+          });
+      } else {
+          document.exitFullscreen();
+      }
   };
 
   // --- Sync Handling ---
@@ -346,7 +367,7 @@ const WatchParty: React.FC = () => {
   const onHostPlayerEvent = (event: { action: 'play'|'pause'|'seek'|'sync', time: number, playing?: boolean }) => {
       if (partyMode !== 'host') return;
 
-      // 1. P2P Broadcast (Fastest)
+      // 1. P2P Broadcast (Immediate & Fast)
       if (event.action === 'sync') {
           broadcastP2P({ 
               type: 'sync', 
@@ -356,16 +377,23 @@ const WatchParty: React.FC = () => {
           broadcastP2P({ type: 'sync', data: event });
       }
 
-      // 2. Firebase Broadcast (Reliable Fallback)
-      // We map the event to a persistent state
-      const actionMap = event.action === 'sync' ? (event.playing ? 'play' : 'pause') : event.action;
-      
-      updateRoomSync(peerId, {
-          action: actionMap,
-          time: event.time,
-          timestamp: Date.now(),
-          media: { season, episode }
-      });
+      // 2. Firebase Broadcast (Reliable Fallback) - WITH DEBOUNCE
+      // Clear existing timer
+      if (firebaseSyncDebounceTimer.current) {
+          clearTimeout(firebaseSyncDebounceTimer.current);
+      }
+
+      // Wait 1000ms before sending to Firebase to prevent flooding
+      firebaseSyncDebounceTimer.current = setTimeout(() => {
+          const actionMap = event.action === 'sync' ? (event.playing ? 'play' : 'pause') : event.action;
+          
+          updateRoomSync(peerId, {
+              action: actionMap,
+              time: event.time,
+              timestamp: Date.now(),
+              media: { season, episode }
+          });
+      }, 1000);
   };
 
   const changeEpisode = (s: number, e: number) => {
@@ -375,9 +403,7 @@ const WatchParty: React.FC = () => {
           // P2P Update
           broadcastP2P({ type: 'media_change', data: { season: s, episode: e } });
           
-          // Firebase Update - CRITICAL: Include 'action' to reset playback to 0 and 'play'
-          // This ensures clients don't just switch episode but also reset their timestamp and play state
-          // preventing them from staying stuck at the old timestamp of the previous video.
+          // Firebase Update
           updateRoomSync(peerId, { 
               media: { season: s, episode: e }, 
               action: 'play', // Auto-play new episode
@@ -440,55 +466,67 @@ const WatchParty: React.FC = () => {
   const isTV = details.media_type === 'tv';
 
   return (
-    <div className="fixed inset-0 bg-slate-950 text-white flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="h-14 lg:h-16 border-b border-white/10 bg-slate-900/50 flex items-center justify-between px-4 lg:px-6 flex-shrink-0 z-20">
-            <div className="flex items-center gap-3 lg:gap-4 overflow-hidden">
-                <div className="flex flex-col min-w-0">
-                    <h1 className="text-sm lg:text-lg font-bold truncate">
-                        {details.title || details.name}
-                    </h1>
-                    {isTV && <span className="text-[10px] lg:text-xs text-indigo-400">S{season}:E{episode}</span>}
+    <div ref={containerRef} className={`fixed inset-0 bg-slate-950 text-white flex flex-col overflow-hidden ${isFullscreen ? 'z-50' : ''}`}>
+        {/* Header - Hidden in Fullscreen unless hovered or custom toggle? For now, hidden to look like theater mode */}
+        {!isFullscreen && (
+            <div className="h-14 lg:h-16 border-b border-white/10 bg-slate-900/50 flex items-center justify-between px-4 lg:px-6 flex-shrink-0 z-20">
+                <div className="flex items-center gap-3 lg:gap-4 overflow-hidden">
+                    <div className="flex flex-col min-w-0">
+                        <h1 className="text-sm lg:text-lg font-bold truncate">
+                            {details.title || details.name}
+                        </h1>
+                        {isTV && <span className="text-[10px] lg:text-xs text-indigo-400">S{season}:E{episode}</span>}
+                    </div>
+                    {isHost && (
+                        <span className="hidden sm:inline-block px-2 py-0.5 bg-indigo-500/20 text-indigo-300 text-[10px] rounded border border-indigo-500/30">
+                            HOST
+                        </span>
+                    )}
                 </div>
-                {isHost && (
-                    <span className="hidden sm:inline-block px-2 py-0.5 bg-indigo-500/20 text-indigo-300 text-[10px] rounded border border-indigo-500/30">
-                        HOST
-                    </span>
-                )}
-            </div>
-            
-            <div className="flex items-center gap-2 lg:gap-4">
-                {/* Connection Status Indicator */}
-                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full border text-[10px] font-bold ${p2pConnected ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'}`} title={p2pConnected ? 'P2P Direct Connection' : 'Firebase Relay Mode'}>
-                    {p2pConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-                    <span className="hidden sm:inline">{p2pConnected ? 'Direct' : 'Relay'}</span>
-                </div>
+                
+                <div className="flex items-center gap-2 lg:gap-4">
+                    {/* Connection Status Indicator */}
+                    <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full border text-[10px] font-bold ${p2pConnected ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'}`} title={p2pConnected ? 'P2P Direct Connection' : 'Firebase Relay Mode'}>
+                        {p2pConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+                        <span className="hidden sm:inline">{p2pConnected ? 'Direct' : 'Relay'}</span>
+                    </div>
 
-                <div className="flex items-center gap-2 text-xs lg:text-sm text-gray-400 bg-black/20 px-3 py-1.5 rounded-full">
-                    <Users className="h-3 w-3 lg:h-4 lg:w-4" />
-                    <span>{userCount}</span>
-                </div>
-                {!isHost && (
-                    <button 
-                        onClick={handleManualResync}
-                        className="p-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors"
-                        title="Resync with Host"
+                    <div className="flex items-center gap-2 text-xs lg:text-sm text-gray-400 bg-black/20 px-3 py-1.5 rounded-full">
+                        <Users className="h-3 w-3 lg:h-4 lg:w-4" />
+                        <span>{userCount}</span>
+                    </div>
+
+                    {/* Fullscreen Toggle */}
+                    <button
+                        onClick={toggleFullscreen}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors text-xs lg:text-sm font-bold border border-indigo-500/20"
+                        title="Theater Mode"
                     >
-                        <RefreshCw className="h-4 w-4" />
+                        <Maximize className="h-3 w-3 lg:h-4 lg:w-4" /> <span className="hidden lg:inline">Theater Mode</span>
                     </button>
-                )}
-                <button 
-                    onClick={handleLeaveClick}
-                    className="flex items-center gap-2 px-3 py-1.5 lg:px-4 lg:py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-lg transition-colors text-xs lg:text-sm font-bold"
-                >
-                    <LogOut className="h-3 w-3 lg:h-4 lg:w-4" /> <span className="hidden sm:inline">Leave</span>
-                </button>
+
+                    {!isHost && (
+                        <button 
+                            onClick={handleManualResync}
+                            className="p-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors"
+                            title="Resync with Host"
+                        >
+                            <RefreshCw className="h-4 w-4" />
+                        </button>
+                    )}
+                    <button 
+                        onClick={handleLeaveClick}
+                        className="flex items-center gap-2 px-3 py-1.5 lg:px-4 lg:py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-lg transition-colors text-xs lg:text-sm font-bold"
+                    >
+                        <LogOut className="h-3 w-3 lg:h-4 lg:w-4" /> <span className="hidden sm:inline">Leave</span>
+                    </button>
+                </div>
             </div>
-        </div>
+        )}
 
         {/* Leave Confirmation Modal */}
         {showLeaveModal && (
-            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
                 <div className="bg-slate-900 border border-white/10 w-full max-w-sm rounded-2xl shadow-2xl p-6 text-center">
                     <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
                         <AlertTriangle className="h-6 w-6 text-red-500" />
@@ -515,12 +553,32 @@ const WatchParty: React.FC = () => {
             </div>
         )}
 
-        {/* Main Layout - Stack on Mobile, Row on Desktop */}
-        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+        {/* Fullscreen Exit Button (Floating) */}
+        {isFullscreen && (
+            <div className="absolute top-4 right-4 z-[60] flex gap-2">
+                 <button 
+                    onClick={() => setShowChatOverlay(!showChatOverlay)}
+                    className="p-3 bg-black/60 hover:bg-black/80 text-white rounded-full backdrop-blur-md border border-white/10 transition-colors shadow-lg"
+                    title="Toggle Chat"
+                 >
+                    {showChatOverlay ? <MessageSquareOff className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
+                 </button>
+                 <button 
+                    onClick={toggleFullscreen}
+                    className="p-3 bg-red-500/80 hover:bg-red-600 text-white rounded-full backdrop-blur-md border border-white/10 transition-colors shadow-lg"
+                    title="Exit Fullscreen"
+                 >
+                    <Minimize className="h-5 w-5" />
+                 </button>
+            </div>
+        )}
+
+        {/* Main Layout */}
+        <div className={`flex-1 flex ${isFullscreen ? 'relative' : 'flex-col lg:flex-row'} overflow-hidden`}>
             
             {/* Player Area */}
-            <div className="w-full lg:flex-1 bg-black flex flex-col justify-center relative flex-shrink-0 lg:flex-shrink-1 h-[40vh] lg:h-auto z-10">
-                <div className="w-full h-full lg:max-w-6xl lg:mx-auto lg:px-4 flex items-center bg-black">
+            <div className={`w-full bg-black flex flex-col justify-center relative flex-shrink-0 z-10 ${isFullscreen ? 'absolute inset-0 h-full' : 'lg:flex-1 h-[40vh] lg:h-auto'}`}>
+                <div className={`w-full h-full flex items-center bg-black ${!isFullscreen ? 'lg:max-w-6xl lg:mx-auto lg:px-4' : ''}`}>
                     <VideoPlayer 
                         ref={playerRef}
                         tmdbId={details.id}
@@ -539,55 +597,72 @@ const WatchParty: React.FC = () => {
                 )}
             </div>
 
-            {/* Sidebar (Tabs) */}
-            <div className="w-full lg:w-96 flex-1 lg:flex-none border-t lg:border-t-0 lg:border-l border-white/10 bg-slate-900/50 flex flex-col min-h-0 z-10">
-                {/* Tab Header */}
-                <div className="flex border-b border-white/5 bg-slate-900">
-                    <button 
-                        onClick={() => setActiveTab('chat')}
-                        className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'chat' ? 'text-indigo-400 border-b-2 border-indigo-500 bg-white/5' : 'text-gray-400 hover:text-white'}`}
-                    >
-                        <MessageSquare className="h-4 w-4" /> Chat
-                    </button>
-                    {/* Only Host sees Episodes tab for TV Shows */}
-                    {isHost && isTV && (
-                        <button 
-                            onClick={() => setActiveTab('episodes')}
-                            className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'episodes' ? 'text-indigo-400 border-b-2 border-indigo-500 bg-white/5' : 'text-gray-400 hover:text-white'}`}
-                        >
-                            <List className="h-4 w-4" /> Episodes
-                        </button>
-                    )}
+            {/* Chat Overlay (Fullscreen Mode) */}
+            {isFullscreen && showChatOverlay && (
+                <div className="absolute right-4 bottom-20 w-80 md:w-96 h-[50vh] min-h-[400px] z-50 rounded-2xl overflow-hidden shadow-2xl animate-fade-in border border-white/10 bg-black/40 backdrop-blur-md">
+                     <ChatPanel 
+                        messages={messages}
+                        partyMode={isHost ? 'host' : 'client'}
+                        roomId={peerId}
+                        onSendMessage={sendMessage}
+                        onJoinParty={() => {}} 
+                        onStartHosting={() => {}}
+                        className="h-full bg-transparent"
+                    />
                 </div>
+            )}
 
-                {/* Tab Content */}
-                <div className="flex-1 overflow-hidden relative bg-slate-950/30">
-                    {activeTab === 'chat' ? (
-                        <ChatPanel 
-                            messages={messages}
-                            partyMode={isHost ? 'host' : 'client'}
-                            roomId={peerId}
-                            onSendMessage={sendMessage}
-                            onJoinParty={() => {}} 
-                            onStartHosting={() => {}}
-                            className="h-full border-0 rounded-none bg-transparent"
-                        />
-                    ) : (
-                        <div className="h-full overflow-y-auto p-2">
-                           {details.seasons && (
-                               <SeasonSelector 
-                                   tvId={details.id}
-                                   seasons={details.seasons}
-                                   currentSeason={season}
-                                   currentEpisode={episode}
-                                   onSelect={changeEpisode}
-                                   showBackdrop={details.backdrop_path}
-                               />
-                           )}
-                        </div>
-                    )}
+            {/* Sidebar (Normal Mode) */}
+            {!isFullscreen && (
+                <div className="w-full lg:w-96 flex-1 lg:flex-none border-t lg:border-t-0 lg:border-l border-white/10 bg-slate-900/50 flex flex-col min-h-0 z-10">
+                    {/* Tab Header */}
+                    <div className="flex border-b border-white/5 bg-slate-900">
+                        <button 
+                            onClick={() => setActiveTab('chat')}
+                            className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'chat' ? 'text-indigo-400 border-b-2 border-indigo-500 bg-white/5' : 'text-gray-400 hover:text-white'}`}
+                        >
+                            <MessageSquare className="h-4 w-4" /> Chat
+                        </button>
+                        {/* Only Host sees Episodes tab for TV Shows */}
+                        {isHost && isTV && (
+                            <button 
+                                onClick={() => setActiveTab('episodes')}
+                                className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'episodes' ? 'text-indigo-400 border-b-2 border-indigo-500 bg-white/5' : 'text-gray-400 hover:text-white'}`}
+                            >
+                                <List className="h-4 w-4" /> Episodes
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Tab Content */}
+                    <div className="flex-1 overflow-hidden relative bg-slate-950/30">
+                        {activeTab === 'chat' ? (
+                            <ChatPanel 
+                                messages={messages}
+                                partyMode={isHost ? 'host' : 'client'}
+                                roomId={peerId}
+                                onSendMessage={sendMessage}
+                                onJoinParty={() => {}} 
+                                onStartHosting={() => {}}
+                                className="h-full border-0 rounded-none bg-transparent"
+                            />
+                        ) : (
+                            <div className="h-full overflow-y-auto p-2">
+                            {details.seasons && (
+                                <SeasonSelector 
+                                    tvId={details.id}
+                                    seasons={details.seasons}
+                                    currentSeason={season}
+                                    currentEpisode={episode}
+                                    onSelect={changeEpisode}
+                                    showBackdrop={details.backdrop_path}
+                                />
+                            )}
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     </div>
   );

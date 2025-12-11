@@ -87,7 +87,8 @@ const Rooms: React.FC = () => {
       tmdbId: selectedMedia.id.toString(),
       type: selectedMedia.media_type,
       title: selectedMedia.title || selectedMedia.name || 'Unknown',
-      poster: selectedMedia.poster_path || ''
+      poster: selectedMedia.poster_path || '',
+      backdrop: selectedMedia.backdrop_path || '' // ADDED BACKDROP
     });
 
     if (isPrivate && createPassword) {
