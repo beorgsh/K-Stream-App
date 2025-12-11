@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import Peer from 'peerjs';
-import { Loader2, LogOut, Users, MessageSquare, List } from 'lucide-react';
+import { Loader2, LogOut, Users, MessageSquare, List, RefreshCw } from 'lucide-react';
 import VideoPlayer, { VideoPlayerRef } from '../components/VideoPlayer';
 import ChatPanel from '../components/ChatPanel';
 import SeasonSelector from '../components/SeasonSelector';
@@ -95,12 +95,22 @@ const WatchParty: React.FC = () => {
     return () => unsubscribe();
   }, [peerId]);
 
+  // --- Peer Config for better Mobile Connectivity ---
+  const getPeerConfig = () => ({
+      config: {
+          iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:global.stun.twilio.com:3478' }
+          ]
+      }
+  });
+
   // --- Host Logic ---
 
   const setupHost = () => {
       setStatus('Creating Room...');
       const id = partyId || `wp-${Math.random().toString(36).substr(2, 9)}`;
-      const peer = new Peer(id);
+      const peer = new Peer(id, getPeerConfig());
       peerInstance.current = peer;
 
       peer.on('open', (id) => {
@@ -133,11 +143,26 @@ const WatchParty: React.FC = () => {
           conn.on('open', () => {
              // Send current media state to new user (P2P for sync)
              conn.send({ type: 'media_change', data: { season, episode } });
+             // Request player to send current time to sync new user
+             // (We can't easily poll iframe time, so we just send play state if active, 
+             // but ideally we wait for an event. For now, rely on Host movement)
              addSystemMessage(`${conn.metadata?.name || 'A user'} joined.`);
           });
 
-          // P2P Data is now ONLY for Video/Media sync, not chat
-          conn.on('data', (data) => handleSyncData(data, conn));
+          // Handle Manual Sync Request from Client
+          conn.on('data', (data: any) => {
+              if (data && data.type === 'request_sync') {
+                  // The client asked for a sync. 
+                  // Since we can't get strict time from iframe easily without polling,
+                  // we usually just rely on the next event. 
+                  // However, we can send a "seek" command to the CURRENT known time if we tracked it,
+                  // OR simply pause/play to force alignment.
+                  // For this implementation, we'll re-broadcast the last known state if possible.
+                  // Or simpler: Trigger a brief pause/play to resync everyone.
+                  playerRef.current?.pause(); 
+                  setTimeout(() => playerRef.current?.play(), 500);
+              }
+          });
 
           conn.on('close', () => {
              connections.current = connections.current.filter(c => c !== conn);
@@ -148,7 +173,10 @@ const WatchParty: React.FC = () => {
       
       peer.on('error', (err) => {
           console.error(err);
-          alert("Connection Error: " + err.type);
+          // Don't alert on peer-unavailable (client refresh), just log
+          if (err.type !== 'peer-unavailable') {
+             alert("Connection Error: " + err.type);
+          }
       });
   };
 
@@ -162,7 +190,7 @@ const WatchParty: React.FC = () => {
           return;
       }
 
-      const peer = new Peer();
+      const peer = new Peer(getPeerConfig());
       peerInstance.current = peer;
 
       peer.on('open', () => {
@@ -181,13 +209,27 @@ const WatchParty: React.FC = () => {
               alert("Host disconnected the room.");
               navigate('/');
           });
+          
+          // If connection takes too long
+          setTimeout(() => {
+              if (!conn.open) {
+                   setStatus('Connection timed out. Host may be offline.');
+              }
+          }, 10000);
       });
 
       peer.on('error', (err) => {
            console.error(err);
-           alert("Could not connect to room. It may be closed.");
-           navigate('/');
+           alert("Could not connect to room. The host might have left.");
+           navigate('/rooms');
       });
+  };
+
+  const handleManualResync = () => {
+      if (partyMode === 'client' && hostConn.current?.open) {
+          hostConn.current.send({ type: 'request_sync' });
+          addSystemMessage("Requested resync from host...");
+      }
   };
 
   // --- Sync Handling (PeerJS) ---
@@ -269,6 +311,9 @@ const WatchParty: React.FC = () => {
           <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
               <Loader2 className="h-12 w-12 text-indigo-500 animate-spin mb-4" />
               <h2 className="text-xl font-bold text-white">{status}</h2>
+              {status.includes('timed out') && (
+                  <button onClick={() => window.location.reload()} className="mt-4 px-4 py-2 bg-indigo-600 rounded text-white text-sm">Retry</button>
+              )}
           </div>
       );
   }
@@ -277,42 +322,52 @@ const WatchParty: React.FC = () => {
   const isTV = details.media_type === 'tv';
 
   return (
-    <div className="h-screen bg-slate-950 text-white flex flex-col overflow-hidden">
-        {/* Simplified Header */}
-        <div className="h-16 border-b border-white/10 bg-slate-900/50 flex items-center justify-between px-6 flex-shrink-0">
-            <div className="flex items-center gap-4">
-                <div className="flex flex-col">
-                    <h1 className="text-lg font-bold truncate max-w-xs md:max-w-md">
+    <div className="fixed inset-0 bg-slate-950 text-white flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="h-14 lg:h-16 border-b border-white/10 bg-slate-900/50 flex items-center justify-between px-4 lg:px-6 flex-shrink-0 z-20">
+            <div className="flex items-center gap-3 lg:gap-4 overflow-hidden">
+                <div className="flex flex-col min-w-0">
+                    <h1 className="text-sm lg:text-lg font-bold truncate">
                         {details.title || details.name}
                     </h1>
-                    {isTV && <span className="text-xs text-indigo-400">S{season}:E{episode}</span>}
+                    {isTV && <span className="text-[10px] lg:text-xs text-indigo-400">S{season}:E{episode}</span>}
                 </div>
                 {isHost && (
-                    <span className="px-2 py-1 bg-indigo-500/20 text-indigo-300 text-xs rounded border border-indigo-500/30">
+                    <span className="hidden sm:inline-block px-2 py-0.5 bg-indigo-500/20 text-indigo-300 text-[10px] rounded border border-indigo-500/30">
                         HOST
                     </span>
                 )}
             </div>
             
-            <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 text-sm text-gray-400 bg-black/20 px-3 py-1.5 rounded-full">
-                    <Users className="h-4 w-4" />
+            <div className="flex items-center gap-2 lg:gap-4">
+                <div className="flex items-center gap-2 text-xs lg:text-sm text-gray-400 bg-black/20 px-3 py-1.5 rounded-full">
+                    <Users className="h-3 w-3 lg:h-4 lg:w-4" />
                     <span>{userCount}</span>
                 </div>
+                {!isHost && (
+                    <button 
+                        onClick={handleManualResync}
+                        className="p-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors"
+                        title="Resync with Host"
+                    >
+                        <RefreshCw className="h-4 w-4" />
+                    </button>
+                )}
                 <button 
                     onClick={() => navigate('/rooms')}
-                    className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-lg transition-colors text-sm font-bold"
+                    className="flex items-center gap-2 px-3 py-1.5 lg:px-4 lg:py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-lg transition-colors text-xs lg:text-sm font-bold"
                 >
-                    <LogOut className="h-4 w-4" /> Leave Room
+                    <LogOut className="h-3 w-3 lg:h-4 lg:w-4" /> <span className="hidden sm:inline">Leave</span>
                 </button>
             </div>
         </div>
 
-        {/* Main Content */}
-        <div className="flex-1 flex overflow-hidden">
+        {/* Main Layout - Stack on Mobile, Row on Desktop */}
+        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+            
             {/* Player Area */}
-            <div className="flex-1 bg-black flex flex-col justify-center relative">
-                <div className="w-full max-w-6xl mx-auto px-4">
+            <div className="w-full lg:flex-1 bg-black flex flex-col justify-center relative flex-shrink-0 lg:flex-shrink-1 h-[40vh] lg:h-auto z-10">
+                <div className="w-full h-full lg:max-w-6xl lg:mx-auto lg:px-4 flex items-center bg-black">
                     <VideoPlayer 
                         ref={playerRef}
                         tmdbId={details.id}
@@ -325,19 +380,19 @@ const WatchParty: React.FC = () => {
                     />
                 </div>
                 {!isHost && (
-                    <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur text-white text-xs px-4 py-2 rounded-full pointer-events-none">
+                    <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur text-white text-[10px] lg:text-xs px-3 py-1 rounded-full pointer-events-none border border-white/10">
                         Syncing with Host...
                     </div>
                 )}
             </div>
 
             {/* Sidebar (Tabs) */}
-            <div className="w-80 md:w-96 border-l border-white/10 bg-slate-900/50 flex flex-col">
+            <div className="w-full lg:w-96 flex-1 lg:flex-none border-t lg:border-t-0 lg:border-l border-white/10 bg-slate-900/50 flex flex-col min-h-0 z-10">
                 {/* Tab Header */}
-                <div className="flex border-b border-white/5">
+                <div className="flex border-b border-white/5 bg-slate-900">
                     <button 
                         onClick={() => setActiveTab('chat')}
-                        className={`flex-1 py-4 text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'chat' ? 'text-indigo-400 border-b-2 border-indigo-500 bg-white/5' : 'text-gray-400 hover:text-white'}`}
+                        className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'chat' ? 'text-indigo-400 border-b-2 border-indigo-500 bg-white/5' : 'text-gray-400 hover:text-white'}`}
                     >
                         <MessageSquare className="h-4 w-4" /> Chat
                     </button>
@@ -345,7 +400,7 @@ const WatchParty: React.FC = () => {
                     {isHost && isTV && (
                         <button 
                             onClick={() => setActiveTab('episodes')}
-                            className={`flex-1 py-4 text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'episodes' ? 'text-indigo-400 border-b-2 border-indigo-500 bg-white/5' : 'text-gray-400 hover:text-white'}`}
+                            className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'episodes' ? 'text-indigo-400 border-b-2 border-indigo-500 bg-white/5' : 'text-gray-400 hover:text-white'}`}
                         >
                             <List className="h-4 w-4" /> Episodes
                         </button>
@@ -353,7 +408,7 @@ const WatchParty: React.FC = () => {
                 </div>
 
                 {/* Tab Content */}
-                <div className="flex-1 overflow-hidden relative">
+                <div className="flex-1 overflow-hidden relative bg-slate-950/30">
                     {activeTab === 'chat' ? (
                         <ChatPanel 
                             messages={messages}
