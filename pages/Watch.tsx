@@ -4,12 +4,15 @@ import { fetchMediaDetails } from '../services/api';
 import { MediaDetails } from '../types';
 import VideoPlayer, { VideoPlayerRef } from '../components/VideoPlayer';
 import SeasonSelector from '../components/SeasonSelector';
+import MediaCard from '../components/MediaCard';
 import { WatchSkeleton } from '../components/Skeleton';
-import { ChevronLeft, AlertCircle, List, Info } from 'lucide-react';
+import { AlertCircle, List, Info, Grid, Star, Clock, Users, Calendar } from 'lucide-react';
 import { auth } from '../services/firebase';
+import { IMAGE_BASE_URL } from '../constants';
 
 const Watch: React.FC = () => {
   const { type, id } = useParams<{ type: 'movie' | 'tv'; id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
   const [details, setDetails] = useState<MediaDetails | null>(null);
@@ -22,7 +25,7 @@ const Watch: React.FC = () => {
   const [authChecked, setAuthChecked] = useState(false);
   
   // Tab State for Mobile/Sidebar
-  const [activeTab, setActiveTab] = useState<'episodes' | 'info'>('episodes');
+  const [activeTab, setActiveTab] = useState<'episodes' | 'info' | 'recommendations'>('episodes');
   
   const playerRef = useRef<VideoPlayerRef>(null);
 
@@ -55,7 +58,12 @@ const Watch: React.FC = () => {
         ]);
         setDetails(data);
         
-        if (data.media_type === 'movie') {
+        // Handle Tab Query Param
+        const tabParam = searchParams.get('tab');
+        if (tabParam === 'info') {
+            setActiveTab('info');
+        } else if (data.media_type === 'movie') {
+            // Movies default to info or recommendations since no episodes
             setActiveTab('info');
         } else {
             setActiveTab('episodes');
@@ -70,7 +78,7 @@ const Watch: React.FC = () => {
       }
     };
     loadDetails();
-  }, [authChecked, type, id]);
+  }, [authChecked, type, id, searchParams]);
 
   // Show Skeleton while checking auth or loading data
   if (!authChecked || loading) {
@@ -95,21 +103,11 @@ const Watch: React.FC = () => {
   };
 
   const isTV = details.media_type === 'tv';
+  const recommendations = details.similar?.results || details.recommendations?.results || [];
 
   return (
     <div className="min-h-screen bg-slate-950 pt-20 pb-10 px-4 sm:px-6 lg:px-8 animate-fade-in">
       
-      {/* Back to Details */}
-      <div className="max-w-[1600px] mx-auto mb-4">
-        <Link 
-          to={`/details/${type}/${id}`}
-          className="inline-flex items-center text-sm text-gray-400 hover:text-white transition-colors gap-1"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          Back to Details
-        </Link>
-      </div>
-
       <div className={`max-w-[1600px] mx-auto grid grid-cols-1 xl:grid-cols-4 gap-6`}>
         
         {/* Player Section */}
@@ -144,20 +142,26 @@ const Watch: React.FC = () => {
         <div className="xl:col-span-1 flex flex-col h-auto xl:h-[calc(100vh-120px)] xl:sticky xl:top-24">
             
             {/* Mobile Tab Switcher */}
-            <div className="flex xl:hidden gap-2 mb-4 bg-slate-900/50 p-1.5 rounded-xl border border-white/5">
+            <div className="flex xl:hidden gap-2 mb-4 bg-slate-900/50 p-1.5 rounded-xl border border-white/5 overflow-x-auto hide-scrollbar">
                 {isTV && (
                     <button 
                         onClick={() => setActiveTab('episodes')}
-                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'episodes' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-white/5'}`}
+                        className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'episodes' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-white/5'}`}
                     >
                         <List className="h-4 w-4" /> Episodes
                     </button>
                 )}
                 <button 
                     onClick={() => setActiveTab('info')}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'info' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-white/5'}`}
+                    className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'info' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-white/5'}`}
                 >
                     <Info className="h-4 w-4" /> Info
+                </button>
+                 <button 
+                    onClick={() => setActiveTab('recommendations')}
+                    className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'recommendations' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-white/5'}`}
+                >
+                    <Grid className="h-4 w-4" /> Related
                 </button>
             </div>
 
@@ -177,6 +181,12 @@ const Watch: React.FC = () => {
                 >
                     Info
                 </button>
+                <button 
+                    onClick={() => setActiveTab('recommendations')}
+                    className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${activeTab === 'recommendations' ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:bg-white/5'}`}
+                >
+                    Related
+                </button>
             </div>
 
             {/* Content Container */}
@@ -195,17 +205,98 @@ const Watch: React.FC = () => {
 
                 {/* Info Tab */}
                 {activeTab === 'info' && (
-                    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-white/5 p-6 h-full overflow-y-auto">
-                        <h3 className="text-lg font-bold text-white mb-2">Overview</h3>
-                        <p className="text-gray-300 text-sm leading-relaxed mb-4">{details.overview}</p>
-                        <div className="flex flex-wrap gap-2 mb-4">
-                            {details.genres?.map(g => (
-                                <span key={g.id} className="text-xs bg-white/5 border border-white/10 px-2 py-1 rounded text-gray-300">{g.name}</span>
-                            ))}
+                    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-white/5 p-6 h-full overflow-y-auto space-y-6">
+                        {/* Poster & Stats */}
+                        <div className="flex gap-4">
+                           <div className="w-24 flex-shrink-0 rounded-lg overflow-hidden shadow-lg border border-white/10">
+                              <img 
+                                src={details.poster_path ? `${IMAGE_BASE_URL}/w300${details.poster_path}` : ''} 
+                                alt="" 
+                                className="w-full h-full object-cover"
+                              />
+                           </div>
+                           <div className="flex-1 space-y-2">
+                               <div className="flex items-center gap-2 text-sm text-yellow-400">
+                                  <Star className="h-4 w-4 fill-current" />
+                                  <span className="font-bold">{details.vote_average.toFixed(1)}</span>
+                               </div>
+                               <div className="flex items-center gap-2 text-xs text-gray-300">
+                                  <Calendar className="h-3 w-3" />
+                                  <span>{details.release_date || details.first_air_date}</span>
+                               </div>
+                               {details.runtime ? (
+                                   <div className="flex items-center gap-2 text-xs text-gray-300">
+                                      <Clock className="h-3 w-3" />
+                                      <span>{details.runtime} min</span>
+                                   </div>
+                               ) : null}
+                               <span className="inline-block text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-white/10 text-gray-300">
+                                 {details.status}
+                               </span>
+                           </div>
                         </div>
-                        <div className="text-xs text-gray-500">
-                            Released: {details.release_date || details.first_air_date}
+
+                        {/* Overview */}
+                        <div>
+                            <h3 className="text-sm font-bold text-white mb-2">Overview</h3>
+                            <p className="text-gray-300 text-sm leading-relaxed">{details.overview}</p>
                         </div>
+
+                        {/* Genres */}
+                        <div>
+                            <h3 className="text-sm font-bold text-white mb-2">Genres</h3>
+                            <div className="flex flex-wrap gap-2">
+                                {details.genres?.map(g => (
+                                    <span key={g.id} className="text-xs bg-indigo-500/10 border border-indigo-500/20 px-2 py-1 rounded text-indigo-300">
+                                        {g.name}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Cast */}
+                        <div>
+                             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                                <Users className="h-4 w-4" /> Top Cast
+                             </h3>
+                             <div className="space-y-3">
+                                 {details.credits?.cast.slice(0, 6).map(actor => (
+                                     <div key={actor.id} className="flex items-center gap-3 bg-white/5 p-2 rounded-lg">
+                                         <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-800">
+                                            {actor.profile_path ? (
+                                                <img src={`${IMAGE_BASE_URL}/w185${actor.profile_path}`} className="w-full h-full object-cover" alt={actor.name} />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-[10px] text-gray-500">N/A</div>
+                                            )}
+                                         </div>
+                                         <div className="min-w-0">
+                                             <p className="text-xs font-bold text-white truncate">{actor.name}</p>
+                                             <p className="text-[10px] text-gray-400 truncate">{actor.character}</p>
+                                         </div>
+                                     </div>
+                                 ))}
+                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Recommendations Tab */}
+                {activeTab === 'recommendations' && (
+                    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-white/5 h-full overflow-y-auto p-4">
+                        {recommendations.length > 0 ? (
+                            <div className="grid grid-cols-2 gap-4">
+                                {recommendations.map(media => (
+                                    <div key={media.id} className="w-full">
+                                        <MediaCard media={media} />
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                                <AlertCircle className="h-8 w-8 mb-2" />
+                                <p className="text-sm">No recommendations found.</p>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

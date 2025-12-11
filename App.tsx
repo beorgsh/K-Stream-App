@@ -5,7 +5,6 @@ import Home from './pages/Home';
 import GlobalHome from './pages/GlobalHome';
 import Watch from './pages/Watch';
 import WatchParty from './pages/WatchParty';
-import Details from './pages/Details';
 import SearchPage from './pages/Search';
 import Category from './pages/Category';
 import Rooms from './pages/Rooms';
@@ -47,7 +46,6 @@ const App: React.FC = () => {
 
             <Route path="/rooms" element={<LayoutWithNavbar><Rooms /></LayoutWithNavbar>} />
             <Route path="/login" element={<LayoutWithNavbar><Auth /></LayoutWithNavbar>} />
-            <Route path="/details/:type/:id" element={<LayoutWithNavbar><Details /></LayoutWithNavbar>} />
             <Route path="/watch/:type/:id" element={<LayoutWithNavbar><Watch /></LayoutWithNavbar>} />
 
             {/* Watch Party Route (No Navbar/Footer) */}

@@ -141,7 +141,7 @@ const Hero: React.FC<HeroProps> = ({ items }) => {
                     <span>Watch Now</span>
                   </Link>
                   <Link
-                    to={`/details/${media.media_type}/${media.id}`}
+                    to={`/watch/${media.media_type}/${media.id}?tab=info`}
                     className="flex-1 sm:flex-none justify-center flex items-center space-x-2 bg-slate-800/60 backdrop-blur-md text-white px-3 sm:px-8 py-3 sm:py-3.5 rounded-lg font-semibold hover:bg-slate-700/60 transition-colors border border-white/20 hover:border-white/40 whitespace-nowrap text-xs sm:text-base"
                   >
                     <Info className="h-4 w-4 sm:h-5 sm:w-5" />

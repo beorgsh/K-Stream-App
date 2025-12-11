@@ -30,6 +30,12 @@ export interface MediaDetails extends Media {
   credits?: {
     cast: CastMember[];
   };
+  similar?: {
+    results: Media[];
+  };
+  recommendations?: {
+    results: Media[];
+  };
 }
 
 export interface Season {
