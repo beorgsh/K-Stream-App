@@ -48,14 +48,20 @@ const Rooms: React.FC = () => {
 
   // Subscribe to Firebase - Only when authenticated
   useEffect(() => {
+    // Only try to subscribe once we are sure we have a user
     if (authChecking || !user) return;
 
     setLoadingRooms(true);
+    
+    // The subscribe function now handles waiting for connection auth internally too
     const unsubscribe = subscribeToActiveRooms((data) => {
       setRooms(data || []);
       setLoadingRooms(false);
     });
-    return () => unsubscribe();
+
+    return () => {
+        if (unsubscribe) unsubscribe();
+    };
   }, [authChecking, user]);
 
   // Search logic for Modal

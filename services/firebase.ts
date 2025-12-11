@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, set, onValue, onDisconnect, remove } from 'firebase/database';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { FIREBASE_CONFIG } from '../constants';
 import { SavedRoom } from '../types';
 
@@ -19,7 +19,24 @@ try {
 
 export { auth, db };
 
-export const registerRoomInLobby = (
+// Helper to wait for auth to be ready
+const waitForAuth = (): Promise<any> => {
+    return new Promise((resolve) => {
+        if (!auth) resolve(null);
+        // If currentUser is already populated, resolve immediately
+        if (auth.currentUser) {
+            resolve(auth.currentUser);
+            return;
+        }
+        // Otherwise wait for the first emission
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+            unsubscribe();
+            resolve(user);
+        });
+    });
+};
+
+export const registerRoomInLobby = async (
   roomId: string, 
   roomName: string, 
   hostName: string,
@@ -35,6 +52,13 @@ export const registerRoomInLobby = (
 ) => {
   if (!db) return;
 
+  // Ensure user is authenticated before writing to DB
+  const user = await waitForAuth();
+  if (!user) {
+      console.error("Cannot register room: User not authenticated");
+      return;
+  }
+
   const roomRef = ref(db, `rooms/${roomId}`);
   
   // Create room entry
@@ -49,16 +73,19 @@ export const registerRoomInLobby = (
     media: mediaInfo
   };
 
-  set(roomRef, roomData);
-
-  // Auto-remove room when host disconnects (closes tab)
-  onDisconnect(roomRef).remove();
+  try {
+      await set(roomRef, roomData);
+      // Auto-remove room when host disconnects (closes tab)
+      onDisconnect(roomRef).remove();
+  } catch (error) {
+      console.error("Failed to register room in DB:", error);
+  }
 };
 
 export const removeRoomFromLobby = (roomId: string) => {
   if (!db) return;
   const roomRef = ref(db, `rooms/${roomId}`);
-  remove(roomRef);
+  remove(roomRef).catch(err => console.error("Error removing room:", err));
 };
 
 export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) => {
@@ -67,24 +94,48 @@ export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) =
     return () => {};
   }
 
-  const roomsRef = ref(db, 'rooms');
-  
-  const unsubscribe = onValue(roomsRef, (snapshot) => {
-    const data = snapshot.val();
-    if (data) {
-      const roomList = Object.values(data) as SavedRoom[];
-      // Sort by newest
-      roomList.sort((a, b) => b.timestamp - a.timestamp);
-      callback(roomList);
-    } else {
-      callback([]);
-    }
-  }, (error) => {
-      console.error("Error fetching rooms:", error);
-      callback([]);
-  });
+  let unsubscribeFunc: (() => void) | undefined;
+  let isCancelled = false;
 
-  return unsubscribe;
+  const init = async () => {
+      // Vital: Wait for auth before trying to read 'rooms' if rules require auth
+      const user = await waitForAuth();
+      
+      if (isCancelled) return;
+
+      if (!user) {
+          // If no user after wait, return empty (rules will likely fail anyway)
+          callback([]);
+          return;
+      }
+
+      const roomsRef = ref(db, 'rooms');
+      
+      // Attach listener
+      unsubscribeFunc = onValue(roomsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          const roomList = Object.values(data) as SavedRoom[];
+          // Sort by newest
+          roomList.sort((a, b) => b.timestamp - a.timestamp);
+          callback(roomList);
+        } else {
+          callback([]);
+        }
+      }, (error) => {
+          console.error("Error fetching rooms (Subscription):", error.message);
+          // If permission denied, likely auth lost or rules strict
+          callback([]);
+      });
+  };
+
+  init();
+
+  // Return cleanup function
+  return () => {
+      isCancelled = true;
+      if (unsubscribeFunc) unsubscribeFunc();
+  };
 };
 
 export const logoutUser = async () => {

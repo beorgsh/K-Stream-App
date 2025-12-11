@@ -1,5 +1,6 @@
 import { db, auth } from './firebase';
 import { ref, set, get, child } from 'firebase/database';
+import { onAuthStateChanged } from 'firebase/auth';
 import { Media, StoredMediaData } from '../types';
 
 const STORAGE_KEY = 'vidFastProgress';
@@ -27,26 +28,71 @@ const formatData = (data: any): StoredMediaData | null => {
 
 export const getContinueWatching = async (): Promise<Media[]> => {
   return new Promise((resolve) => {
-    const user = auth.currentUser;
+    // Quick check if auth is ready, if not wait briefly
+    const checkAuth = () => {
+        if (auth.currentUser) return Promise.resolve(auth.currentUser);
+        return new Promise((r) => {
+             const unsub = onAuthStateChanged(auth, (u) => {
+                 unsub();
+                 r(u);
+             });
+        });
+    };
 
-    if (user) {
-      // 1. Logged In: Fetch from Firebase Realtime DB
-      const dbRef = ref(db);
-      get(child(dbRef, `users/${user.uid}/progress`))
-        .then((snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.val();
+    checkAuth().then((user: any) => {
+        if (user) {
+          // 1. Logged In: Fetch from Firebase Realtime DB
+          const dbRef = ref(db);
+          get(child(dbRef, `users/${user.uid}/progress`))
+            .then((snapshot) => {
+              if (snapshot.exists()) {
+                const data = snapshot.val();
+                const formatted = Object.values(data)
+                  // @ts-ignore
+                  .sort((a: any, b: any) => b.last_updated - a.last_updated)
+                  .map((item: any) => ({
+                    id: item.id,
+                    title: item.title,
+                    name: item.title,
+                    poster_path: item.poster_path,
+                    backdrop_path: item.backdrop_path,
+                    overview: '',
+                    vote_average: 0,
+                    media_type: item.type,
+                    original_language: 'en',
+                    progress: item.progress,
+                    last_season: item.last_season_watched,
+                    last_episode: item.last_episode_watched
+                  }));
+                resolve(formatted);
+              } else {
+                resolve([]);
+              }
+            })
+            .catch((err) => {
+              // Ignore 404s or Permission Denied to prevent UI crashes
+              // console.warn("DB Fetch Warning:", err.message); 
+              resolve([]);
+            });
+        } else {
+          // 2. Guest: Fetch from LocalStorage
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (!stored) {
+            resolve([]);
+            return;
+          }
+          try {
+            const data: Record<string, StoredMediaData> = JSON.parse(stored);
             const formatted = Object.values(data)
-              // @ts-ignore
-              .sort((a: any, b: any) => b.last_updated - a.last_updated)
-              .map((item: any) => ({
+              .sort((a, b) => b.last_updated - a.last_updated)
+              .map(item => ({
                 id: item.id,
                 title: item.title,
-                name: item.title,
+                name: item.title, // For TV compatibility
                 poster_path: item.poster_path,
                 backdrop_path: item.backdrop_path,
-                overview: '',
-                vote_average: 0,
+                overview: '', 
+                vote_average: 0, 
                 media_type: item.type,
                 original_language: 'en',
                 progress: item.progress,
@@ -54,60 +100,41 @@ export const getContinueWatching = async (): Promise<Media[]> => {
                 last_episode: item.last_episode_watched
               }));
             resolve(formatted);
-          } else {
+          } catch (e) {
+            console.error("Failed to parse local progress data", e);
             resolve([]);
           }
-        })
-        .catch((err) => {
-          console.error("Error fetching progress from DB:", err);
-          resolve([]);
-        });
-    } else {
-      // 2. Guest: Fetch from LocalStorage
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (!stored) {
-        resolve([]);
-        return;
-      }
-      try {
-        const data: Record<string, StoredMediaData> = JSON.parse(stored);
-        const formatted = Object.values(data)
-          .sort((a, b) => b.last_updated - a.last_updated)
-          .map(item => ({
-            id: item.id,
-            title: item.title,
-            name: item.title, // For TV compatibility
-            poster_path: item.poster_path,
-            backdrop_path: item.backdrop_path,
-            overview: '', 
-            vote_average: 0, 
-            media_type: item.type,
-            original_language: 'en',
-            progress: item.progress,
-            last_season: item.last_season_watched,
-            last_episode: item.last_episode_watched
-          }));
-        resolve(formatted);
-      } catch (e) {
-        console.error("Failed to parse local progress data", e);
-        resolve([]);
-      }
-    }
+        }
+    });
   });
 };
 
-export const saveProgress = (rawData: any) => {
+export const saveProgress = async (rawData: any) => {
     const formatted = formatData(rawData);
     if (!formatted) return;
 
-    const user = auth.currentUser;
-    // Create unique key based on type and ID (e.g., m12345 or t67890)
+    // Check auth state properly before deciding storage
+    let user = auth.currentUser;
+    if (!user) {
+        // Wait for auth to settle if it's in initial loading state
+        user = await new Promise(resolve => {
+             const unsub = onAuthStateChanged(auth, (u) => {
+                 unsub();
+                 resolve(u);
+             });
+        });
+    }
+
     const key = `${formatted.type === 'movie' ? 'm' : 't'}${formatted.id}`;
 
     if (user) {
         // Save to Firebase (User Specific)
+        // @ts-ignore
         set(ref(db, `users/${user.uid}/progress/${key}`), formatted)
-        .catch(err => console.error("Failed to save to DB", err));
+        .catch(err => {
+            // Silently fail or log warning if DB is unreachable/404
+            console.warn("Sync failed (DB):", err.message);
+        });
     } else {
         // Save to LocalStorage (Guest)
         try {
