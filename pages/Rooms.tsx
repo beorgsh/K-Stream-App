@@ -130,6 +130,14 @@ const Rooms: React.FC = () => {
       navigate(`/party?${params.toString()}`);
   };
 
+  const getInitials = (name: string) => {
+    if (!name) return 'U';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 0) return 'U';
+    if (parts.length === 1) return parts[0][0].toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  };
+
   // Pagination Logic
   const totalPages = Math.ceil(rooms.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -216,8 +224,8 @@ const Rooms: React.FC = () => {
                   
                   <div className="flex items-center justify-between mt-4">
                       <div className="flex items-center gap-2 text-xs text-gray-500">
-                        <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold uppercase">
-                            {room.hostName ? room.hostName[0] : 'H'}
+                        <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold uppercase text-[10px]">
+                            {room.hostName ? getInitials(room.hostName) : 'H'}
                         </div>
                         <span className="truncate max-w-[100px]">Hosted by {room.hostName || 'Unknown'}</span>
                       </div>

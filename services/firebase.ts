@@ -27,6 +27,18 @@ export const waitForAuth = (): Promise<any> => {
     });
 };
 
+export const updateUserPassword = async (currentPassword: string, newPassword: string) => {
+    const user = auth.currentUser;
+    if (!user || !user.email) throw new Error("No authenticated user found.");
+
+    // 1. Re-authenticate
+    const credential = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword);
+    await user.reauthenticateWithCredential(credential);
+
+    // 2. Update Password
+    await user.updatePassword(newPassword);
+};
+
 const sanitizeData = <T>(data: T): T => {
     return JSON.parse(JSON.stringify(data, (key, value) => {
         if (value === undefined) return null;

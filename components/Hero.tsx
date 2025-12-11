@@ -131,21 +131,21 @@ const Hero: React.FC<HeroProps> = ({ items }) => {
                   {media.overview}
                 </p>
 
-                {/* Buttons */}
-                <div className="flex flex-row flex-nowrap items-center gap-2 sm:gap-4 pt-4 w-full sm:w-auto">
+                {/* Buttons - Fixed to be width-auto based on content */}
+                <div className="flex flex-row flex-nowrap items-center gap-3 pt-4">
                   <Link
                     to={`/watch/${media.media_type}/${media.id}`}
-                    className="flex-1 sm:flex-none justify-center flex items-center space-x-2 bg-white text-slate-950 px-3 sm:px-8 py-3 sm:py-3.5 rounded-lg font-bold hover:bg-gray-200 transition-transform active:scale-95 shadow-lg shadow-white/10 whitespace-nowrap text-xs sm:text-base"
+                    className="w-auto flex-none justify-center flex items-center space-x-2 bg-white text-slate-950 px-6 py-3 rounded-lg font-bold hover:bg-gray-200 transition-transform active:scale-95 shadow-lg shadow-white/10 whitespace-nowrap text-sm sm:text-base"
                   >
-                    <Play className="h-4 w-4 sm:h-5 sm:w-5 fill-current" />
-                    <span>Watch Now</span>
+                    <Play className="h-4 w-4 fill-current" />
+                    <span>Watch</span>
                   </Link>
                   <Link
                     to={`/watch/${media.media_type}/${media.id}?tab=info`}
-                    className="flex-1 sm:flex-none justify-center flex items-center space-x-2 bg-slate-800/60 backdrop-blur-md text-white px-3 sm:px-8 py-3 sm:py-3.5 rounded-lg font-semibold hover:bg-slate-700/60 transition-colors border border-white/20 hover:border-white/40 whitespace-nowrap text-xs sm:text-base"
+                    className="w-auto flex-none justify-center flex items-center space-x-2 bg-slate-800/60 backdrop-blur-md text-white px-6 py-3 rounded-lg font-semibold hover:bg-slate-700/60 transition-colors border border-white/20 hover:border-white/40 whitespace-nowrap text-sm sm:text-base"
                   >
-                    <Info className="h-4 w-4 sm:h-5 sm:w-5" />
-                    <span>More Info</span>
+                    <Info className="h-4 w-4" />
+                    <span>Info</span>
                   </Link>
                 </div>
               </div>

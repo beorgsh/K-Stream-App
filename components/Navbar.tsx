@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MonitorPlay, Menu, X, Globe, Users, User, LogOut, Edit2, Save, Loader2 } from 'lucide-react';
+import { Search, MonitorPlay, Menu, X, Globe, Users, User, LogOut, Edit2, Save, Loader2, Lock, Shield } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { auth, logoutUser } from '../services/firebase';
+import { auth, logoutUser, updateUserPassword } from '../services/firebase';
 import Toast from './Toast';
 
 const Navbar: React.FC = () => {
@@ -15,6 +15,12 @@ const Navbar: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false); // Controls animation
   const [newDisplayName, setNewDisplayName] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
+  
+  // Change Password State
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   
   const navigate = useNavigate();
@@ -59,6 +65,9 @@ const Navbar: React.FC = () => {
   // Modal Helpers
   const openProfileModal = () => {
       setIsProfileModalOpen(true);
+      setIsChangingPassword(false);
+      setCurrentPassword('');
+      setNewPassword('');
       // Small delay to ensure DOM is rendered before fading in
       setTimeout(() => setModalVisible(true), 10);
   };
@@ -70,23 +79,60 @@ const Navbar: React.FC = () => {
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!user || !newDisplayName.trim()) return;
+      if (!user) return;
+      
+      // Basic validation
+      if (!newDisplayName.trim()) {
+          setToast({ message: "Display name cannot be empty.", type: 'error' });
+          return;
+      }
+      
+      if (isChangingPassword) {
+          if (!currentPassword || !newPassword) {
+              setToast({ message: "Both current and new passwords are required.", type: 'error' });
+              return;
+          }
+          if (newPassword.length < 6) {
+              setToast({ message: "New password must be at least 6 characters.", type: 'error' });
+              return;
+          }
+      }
 
       setIsUpdating(true);
       try {
-          await user.updateProfile({
-              displayName: newDisplayName
-          });
-          // Force state update to reflect immediately in UI
-          setUser({ ...user, displayName: newDisplayName });
+          // 1. Update Display Name
+          if (newDisplayName !== user.displayName) {
+              await user.updateProfile({
+                  displayName: newDisplayName
+              });
+              setUser({ ...user, displayName: newDisplayName });
+          }
+
+          // 2. Update Password (if requested)
+          if (isChangingPassword) {
+              await updateUserPassword(currentPassword, newPassword);
+          }
+
           setToast({ message: "Profile updated successfully!", type: 'success' });
           setTimeout(() => closeProfileModal(), 1000);
-      } catch (error) {
+      } catch (error: any) {
           console.error("Update failed", error);
-          setToast({ message: "Failed to update profile.", type: 'error' });
+          let msg = "Failed to update profile.";
+          if (error.code === 'auth/wrong-password') msg = "Incorrect current password.";
+          if (error.code === 'auth/weak-password') msg = "Password is too weak.";
+          if (error.message.includes('credential')) msg = "Incorrect current password.";
+          setToast({ message: msg, type: 'error' });
       } finally {
           setIsUpdating(false);
       }
+  };
+
+  const getInitials = (name: string | null | undefined) => {
+    if (!name) return 'U';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 0) return 'U';
+    if (parts.length === 1) return parts[0][0].toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
   };
 
   const navLinks = [
@@ -178,7 +224,7 @@ const Navbar: React.FC = () => {
             {user ? (
                 <div className="flex items-center gap-2 group relative h-full py-4">
                     <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-sm font-bold border border-white/20 cursor-pointer">
-                        {user.displayName ? user.displayName[0].toUpperCase() : 'U'}
+                        {getInitials(user.displayName)}
                     </div>
                     {/* Hover Dropdown - Fixed with pt-2 to bridge gap */}
                     <div className="absolute right-0 top-full pt-2 w-40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto">
@@ -230,7 +276,7 @@ const Navbar: React.FC = () => {
 
             {user && (
                  <div onClick={openProfileModal} className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold border border-white/20 ml-1">
-                    {user.displayName ? user.displayName[0].toUpperCase() : 'U'}
+                    {getInitials(user.displayName)}
                  </div>
              )}
           </div>
@@ -309,14 +355,58 @@ const Navbar: React.FC = () => {
                 >
                     <h3 className="text-xl font-bold text-white mb-4">Edit Profile</h3>
                     <form onSubmit={handleUpdateProfile}>
-                        <label className="block text-sm text-gray-400 mb-2">Display Name</label>
-                        <input 
-                            type="text" 
-                            value={newDisplayName}
-                            onChange={(e) => setNewDisplayName(e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500 mb-6"
-                            placeholder="Enter new name"
-                        />
+                        <div className="mb-6">
+                            <label className="block text-sm text-gray-400 mb-2">Display Name</label>
+                            <input 
+                                type="text" 
+                                value={newDisplayName}
+                                onChange={(e) => setNewDisplayName(e.target.value)}
+                                className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                                placeholder="Enter name"
+                            />
+                        </div>
+
+                        {/* Change Password Toggle */}
+                        <div className="mb-6 border-t border-white/10 pt-4">
+                            <button
+                                type="button"
+                                onClick={() => setIsChangingPassword(!isChangingPassword)}
+                                className="flex items-center gap-2 text-sm font-bold text-indigo-400 hover:text-indigo-300 transition-colors"
+                            >
+                                <Lock className="h-4 w-4" />
+                                {isChangingPassword ? "Cancel Password Change" : "Change Password"}
+                            </button>
+
+                            {isChangingPassword && (
+                                <div className="mt-4 space-y-4 animate-fade-in bg-white/5 p-4 rounded-lg border border-white/5">
+                                    <div className="flex items-start gap-2 text-xs text-yellow-500/80 mb-2">
+                                        <Shield className="h-3 w-3 mt-0.5" />
+                                        <span>For security, verify your current password.</span>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1.5">Current Password</label>
+                                        <input 
+                                            type="password" 
+                                            value={currentPassword}
+                                            onChange={(e) => setCurrentPassword(e.target.value)}
+                                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                                            placeholder="Verify current password"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-gray-400 mb-1.5">New Password</label>
+                                        <input 
+                                            type="password" 
+                                            value={newPassword}
+                                            onChange={(e) => setNewPassword(e.target.value)}
+                                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                                            placeholder="Minimum 6 characters"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
                         <div className="flex gap-3">
                             <button 
                                 type="button"
@@ -328,10 +418,10 @@ const Navbar: React.FC = () => {
                             <button 
                                 type="submit"
                                 disabled={isUpdating}
-                                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold transition-colors flex items-center justify-center gap-2"
+                                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20"
                             >
                                 {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                                Save
+                                Save Changes
                             </button>
                         </div>
                     </form>
