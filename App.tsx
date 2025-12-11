@@ -4,6 +4,7 @@ import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import GlobalHome from './pages/GlobalHome';
 import Watch from './pages/Watch';
+import WatchParty from './pages/WatchParty';
 import Details from './pages/Details';
 import SearchPage from './pages/Search';
 import Category from './pages/Category';
@@ -18,40 +19,42 @@ const Footer = () => (
   </footer>
 );
 
+const LayoutWithNavbar = ({ children }: { children?: React.ReactNode }) => (
+    <>
+        <Navbar />
+        <main className="flex-grow">
+            {children}
+        </main>
+        <Footer />
+    </>
+);
+
 const App: React.FC = () => {
   return (
     <HashRouter>
       <div className="min-h-screen bg-slate-950 text-white flex flex-col">
-        <Navbar />
-        <main className="flex-grow">
-          <Routes>
-            {/* K-Stream (Korean) Routes */}
-            <Route path="/" element={<Home />} />
-            <Route path="/movies" element={<Category type="movie" />} />
-            <Route path="/tv" element={<Category type="tv" />} />
-            <Route path="/search" element={<SearchPage />} />
+        <Routes>
+            {/* Standard Routes with Navbar */}
+            <Route path="/" element={<LayoutWithNavbar><Home /></LayoutWithNavbar>} />
+            <Route path="/movies" element={<LayoutWithNavbar><Category type="movie" /></LayoutWithNavbar>} />
+            <Route path="/tv" element={<LayoutWithNavbar><Category type="tv" /></LayoutWithNavbar>} />
+            <Route path="/search" element={<LayoutWithNavbar><SearchPage /></LayoutWithNavbar>} />
             
-            {/* Global Stream Routes */}
-            <Route path="/global" element={<GlobalHome />} />
-            <Route path="/global/movies" element={<Category type="movie" isGlobal={true} />} />
-            <Route path="/global/tv" element={<Category type="tv" isGlobal={true} />} />
-            <Route path="/global/search" element={<SearchPage />} />
+            <Route path="/global" element={<LayoutWithNavbar><GlobalHome /></LayoutWithNavbar>} />
+            <Route path="/global/movies" element={<LayoutWithNavbar><Category type="movie" isGlobal={true} /></LayoutWithNavbar>} />
+            <Route path="/global/tv" element={<LayoutWithNavbar><Category type="tv" isGlobal={true} /></LayoutWithNavbar>} />
+            <Route path="/global/search" element={<LayoutWithNavbar><SearchPage /></LayoutWithNavbar>} />
 
-            {/* Watch Party Lobby */}
-            <Route path="/rooms" element={<Rooms />} />
+            <Route path="/rooms" element={<LayoutWithNavbar><Rooms /></LayoutWithNavbar>} />
+            <Route path="/login" element={<LayoutWithNavbar><Auth /></LayoutWithNavbar>} />
+            <Route path="/details/:type/:id" element={<LayoutWithNavbar><Details /></LayoutWithNavbar>} />
+            <Route path="/watch/:type/:id" element={<LayoutWithNavbar><Watch /></LayoutWithNavbar>} />
 
-            {/* Auth */}
-            <Route path="/login" element={<Auth />} />
-
-            {/* Details & Player Routes */}
-            <Route path="/details/:type/:id" element={<Details />} />
-            <Route path="/watch/:type/:id" element={<Watch />} />
+            {/* Watch Party Route (No Navbar/Footer) */}
+            <Route path="/party" element={<WatchParty />} />
             
-            {/* 404 Not Found */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </main>
-        <Footer />
+            <Route path="*" element={<LayoutWithNavbar><NotFound /></LayoutWithNavbar>} />
+        </Routes>
       </div>
     </HashRouter>
   );

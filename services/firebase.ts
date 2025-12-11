@@ -1,8 +1,8 @@
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, set, onValue, onDisconnect, remove } from 'firebase/database';
+import { getDatabase, ref, set, push, onValue, onDisconnect, remove, serverTimestamp } from 'firebase/database';
 import { getAuth, signOut, onAuthStateChanged } from 'firebase/auth';
 import { FIREBASE_CONFIG } from '../constants';
-import { SavedRoom } from '../types';
+import { SavedRoom, ChatMessage } from '../types';
 
 // Initialize Firebase
 let app;
@@ -42,6 +42,8 @@ const sanitizeData = <T>(data: T): T => {
         return value;
     }));
 };
+
+// --- ROOM LOBBY LOGIC ---
 
 export const registerRoomInLobby = async (
   roomId: string, 
@@ -84,7 +86,9 @@ export const registerRoomInLobby = async (
 
   try {
       await set(roomRef, sanitizeData(roomData));
+      // If host disconnects, remove the room AND the chats
       onDisconnect(roomRef).remove();
+      onDisconnect(ref(db, `chats/${roomId}`)).remove();
   } catch (error: any) {
       console.error("Failed to register room in DB:", error.message);
   }
@@ -92,8 +96,13 @@ export const registerRoomInLobby = async (
 
 export const removeRoomFromLobby = (roomId: string) => {
   if (!db) return;
+  // Remove Room Info
   const roomRef = ref(db, `rooms/${roomId}`);
   remove(roomRef).catch(() => {});
+  
+  // Remove Chat History
+  const chatRef = ref(db, `chats/${roomId}`);
+  remove(chatRef).catch(() => {});
 };
 
 export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) => {
@@ -106,7 +115,6 @@ export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) =
   let isCancelled = false;
 
   const init = async () => {
-      // Ensure we attempt to wait for auth, as rules likely depend on it
       await waitForAuth();
       if (isCancelled) return;
 
@@ -137,6 +145,35 @@ export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) =
       isCancelled = true;
       if (unsubscribeFunc) unsubscribeFunc();
   };
+};
+
+// --- CHAT LOGIC ---
+
+export const subscribeToChat = (roomId: string, callback: (messages: ChatMessage[]) => void) => {
+    if (!db || !roomId) return () => {};
+
+    const chatRef = ref(db, `chats/${roomId}`);
+
+    const unsubscribe = onValue(chatRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            const msgs = Object.values(data) as ChatMessage[];
+            msgs.sort((a, b) => a.timestamp - b.timestamp);
+            callback(msgs);
+        } else {
+            callback([]);
+        }
+    });
+
+    return () => unsubscribe();
+};
+
+export const sendChatMessage = async (roomId: string, message: ChatMessage) => {
+    if (!db || !roomId) return;
+    
+    const chatRef = ref(db, `chats/${roomId}`);
+    const newMessageRef = push(chatRef);
+    await set(newMessageRef, message);
 };
 
 export const logoutUser = async () => {

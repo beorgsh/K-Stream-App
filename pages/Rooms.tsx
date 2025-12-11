@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Search, Lock, Unlock, MonitorPlay, Loader2, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Users, Plus, Search, Lock, Unlock, MonitorPlay, Loader2, X, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { searchContent } from '../services/api';
 import { subscribeToActiveRooms, auth } from '../services/firebase';
@@ -9,7 +9,11 @@ import { onAuthStateChanged } from 'firebase/auth';
 
 const Rooms: React.FC = () => {
   const navigate = useNavigate();
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  
+  // Password Modal State
+  const [passwordModal, setPasswordModal] = useState<{ isOpen: boolean; room: SavedRoom | null }>({ isOpen: false, room: null });
+  const [inputPassword, setInputPassword] = useState('');
   
   // Real Data State
   const [rooms, setRooms] = useState<SavedRoom[]>([]);
@@ -26,7 +30,7 @@ const Rooms: React.FC = () => {
   // Room Creation State
   const [roomName, setRoomName] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
-  const [password, setPassword] = useState('');
+  const [createPassword, setCreatePassword] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   
   // Search State
@@ -46,113 +50,90 @@ const Rooms: React.FC = () => {
      return () => unsub();
   }, [navigate]);
 
-  // Subscribe to Firebase - Only when authenticated
+  // Subscribe to Firebase
   useEffect(() => {
-    // Only try to subscribe once we are sure we have a user
     if (authChecking || !user) return;
-
     setLoadingRooms(true);
-    
-    // The subscribe function now handles waiting for connection auth internally too
     const unsubscribe = subscribeToActiveRooms((data) => {
       setRooms(data || []);
       setLoadingRooms(false);
     });
-
-    return () => {
-        if (unsubscribe) unsubscribe();
-    };
+    return () => { if (unsubscribe) unsubscribe(); };
   }, [authChecking, user]);
 
-  // Search logic for Modal
+  // Search logic
   useEffect(() => {
     const search = async () => {
-      if (!mediaQuery.trim()) {
-        setSearchResults([]);
-        return;
-      }
+      if (!mediaQuery.trim()) { setSearchResults([]); return; }
       setSearching(true);
       try {
-        // Enforce KDrama only search (false for isGlobal)
         const results = await searchContent(mediaQuery, false); 
         setSearchResults(results.slice(0, 5));
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setSearching(false);
-      }
+      } catch (e) { console.error(e); } finally { setSearching(false); }
     };
-
     const timeout = setTimeout(search, 500);
     return () => clearTimeout(timeout);
   }, [mediaQuery]);
 
   const handleCreateRoom = () => {
     if (!roomName || !selectedMedia || !user) return;
-
-    // We generate the ID here so PeerJS uses it in the player.
-    const tempId = 'room-' + Math.random().toString(36).substr(2, 9);
     
-    // Construct URL Params
+    // NOTE: ID generation happens in WatchParty page via PeerJS
     const params = new URLSearchParams({
-      partyId: tempId, 
-      partyMode: 'host',
+      mode: 'host',
       name: user.displayName || 'Host',
       roomName: roomName,
-      isPrivate: isPrivate.toString()
+      isPrivate: isPrivate.toString(),
+      // Media info passed to init state
+      tmdbId: selectedMedia.id.toString(),
+      type: selectedMedia.media_type,
+      title: selectedMedia.title || selectedMedia.name || 'Unknown',
+      poster: selectedMedia.poster_path || ''
     });
 
-    if (isPrivate && password) {
-      params.append('password', password);
+    if (isPrivate && createPassword) {
+      params.append('password', createPassword);
     }
 
-    navigate(`/watch/${selectedMedia.media_type}/${selectedMedia.id}?${params.toString()}`);
+    navigate(`/party?${params.toString()}`);
   };
 
-  const handleJoinRoom = (room: SavedRoom) => {
-    let joinName = user?.displayName;
-    if (!joinName) {
-        joinName = prompt("Enter your display name:", "Guest");
-    }
-    if (!joinName) return;
-
-    if (room.isPrivate) {
-      const input = prompt("Enter room password:");
-      if (input !== room.password) {
-         alert("Incorrect password");
-         return;
+  const initJoin = (room: SavedRoom) => {
+      if (room.isPrivate) {
+          setPasswordModal({ isOpen: true, room });
+          setInputPassword('');
+      } else {
+          performJoin(room);
       }
-    }
-    
-    const params = new URLSearchParams({
-      partyId: room.id,
-      partyMode: 'client',
-      name: joinName
-    });
-
-    if (room.media) {
-         navigate(`/watch/${room.media.type}/${room.media.id}?${params.toString()}`);
-    }
   };
 
-  const openCreationModal = () => {
-      if (!user) {
-          navigate('/login');
-          return;
+  const handlePasswordSubmit = () => {
+      if (!passwordModal.room) return;
+      if (inputPassword === passwordModal.room.password) {
+          performJoin(passwordModal.room);
+          setPasswordModal({ isOpen: false, room: null });
+      } else {
+          alert("Incorrect Password");
       }
-      setIsModalOpen(true);
+  };
+
+  const performJoin = (room: SavedRoom) => {
+      const joinName = user?.displayName || 'Guest';
+      const params = new URLSearchParams({
+          partyId: room.id,
+          mode: 'client',
+          name: joinName,
+          // Need basic media info to load the page correctly initially
+          tmdbId: room.media.id.toString(),
+          type: room.media.type,
+      });
+      navigate(`/party?${params.toString()}`);
   };
 
   // Pagination Logic
   const totalPages = Math.ceil(rooms.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const currentRooms = rooms.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-
-  const handlePageChange = (page: number) => {
-    if (page < 1 || page > totalPages) return;
-    setCurrentPage(page);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
 
   if (authChecking) {
       return (
@@ -161,13 +142,10 @@ const Rooms: React.FC = () => {
         </div>
       );
   }
-
-  // If check done and no user, we are redirecting, so return null or simple loader
   if (!user) return null;
 
   return (
     <div className="min-h-screen bg-slate-950 pt-24 px-4 sm:px-6 lg:px-8 pb-20 animate-fade-in relative overflow-hidden">
-      {/* Background Ambience */}
       <div className="absolute top-0 left-1/4 w-1/2 h-1/2 bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none" />
 
       {/* Header */}
@@ -179,7 +157,7 @@ const Rooms: React.FC = () => {
           <p className="text-gray-400">Join active rooms globally or host your own screening.</p>
         </div>
         <button
-          onClick={openCreationModal}
+          onClick={() => setIsCreateModalOpen(true)}
           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-full font-bold shadow-lg shadow-indigo-600/20 transition-all hover:scale-105"
         >
           <Plus className="h-5 w-5" />
@@ -187,21 +165,17 @@ const Rooms: React.FC = () => {
         </button>
       </div>
 
-      {/* Loading State */}
-      {loadingRooms && (
+      {loadingRooms ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-10 w-10 text-indigo-500 animate-spin" />
         </div>
-      )}
-
-      {/* Room Grid */}
-      {!loadingRooms && rooms.length === 0 ? (
+      ) : rooms.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-white/10 rounded-2xl bg-slate-900/50">
               <MonitorPlay className="h-16 w-16 text-gray-600 mb-4" />
               <h3 className="text-xl font-bold text-gray-400">No Active Rooms</h3>
               <p className="text-gray-500 mb-6">Be the first to start a party!</p>
               <button
-                onClick={openCreationModal}
+                onClick={() => setIsCreateModalOpen(true)}
                 className="px-6 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
               >
                 Create One Now
@@ -212,7 +186,6 @@ const Rooms: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
             {currentRooms.map((room) => (
               <div key={room.id} className="bg-slate-900/50 backdrop-blur-sm border border-white/5 rounded-2xl overflow-hidden hover:border-indigo-500/30 transition-all group">
-                {/* Room Banner (Media Backdrop) */}
                 <div className="h-32 w-full relative bg-slate-800">
                   {room.media?.backdrop_path ? (
                     <img 
@@ -221,9 +194,7 @@ const Rooms: React.FC = () => {
                         alt="Room Banner"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-600">
-                        <MonitorPlay className="h-10 w-10" />
-                    </div>
+                    <div className="w-full h-full flex items-center justify-center text-gray-600"><MonitorPlay className="h-10 w-10" /></div>
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent" />
                   <div className="absolute bottom-3 left-4 right-4">
@@ -234,18 +205,13 @@ const Rooms: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Room Details */}
                 <div className="p-4">
                   <div className="flex items-start justify-between mb-4">
                       <div className="overflow-hidden">
                         <p className="text-sm text-gray-400">Watching</p>
                         <p className="text-indigo-400 font-medium truncate">{room.media?.title || 'Unknown Video'}</p>
                       </div>
-                      {room.isPrivate ? (
-                          <Lock className="h-5 w-5 text-red-400 flex-shrink-0" />
-                      ) : (
-                          <Unlock className="h-5 w-5 text-green-400 flex-shrink-0" />
-                      )}
+                      {room.isPrivate ? <Lock className="h-5 w-5 text-red-400 flex-shrink-0" /> : <Unlock className="h-5 w-5 text-green-400 flex-shrink-0" />}
                   </div>
                   
                   <div className="flex items-center justify-between mt-4">
@@ -256,7 +222,7 @@ const Rooms: React.FC = () => {
                         <span className="truncate max-w-[100px]">Hosted by {room.hostName || 'Unknown'}</span>
                       </div>
                       <button 
-                        onClick={() => handleJoinRoom(room)}
+                        onClick={() => initJoin(room)}
                         className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition-colors shadow-lg shadow-indigo-600/10"
                       >
                         Join Party
@@ -267,25 +233,20 @@ const Rooms: React.FC = () => {
             ))}
           </div>
 
-          {/* Pagination Controls */}
           {totalPages > 1 && (
             <div className="flex justify-center items-center mt-12 gap-4 relative z-10">
                 <button 
-                    onClick={() => handlePageChange(currentPage - 1)}
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="p-2 rounded-full bg-slate-800 border border-white/10 hover:bg-indigo-600 disabled:opacity-50 disabled:hover:bg-slate-800 transition-colors"
+                    className="p-2 rounded-full bg-slate-800 border border-white/10 hover:bg-indigo-600 disabled:opacity-50 transition-colors"
                 >
                     <ChevronLeft className="h-5 w-5" />
                 </button>
-                
-                <span className="text-gray-400 font-mono text-sm">
-                    Page <span className="text-white font-bold">{currentPage}</span> of {totalPages}
-                </span>
-
+                <span className="text-gray-400 font-mono text-sm">Page <span className="text-white font-bold">{currentPage}</span> of {totalPages}</span>
                 <button 
-                    onClick={() => handlePageChange(currentPage + 1)}
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    className="p-2 rounded-full bg-slate-800 border border-white/10 hover:bg-indigo-600 disabled:opacity-50 disabled:hover:bg-slate-800 transition-colors"
+                    className="p-2 rounded-full bg-slate-800 border border-white/10 hover:bg-indigo-600 disabled:opacity-50 transition-colors"
                 >
                     <ChevronRight className="h-5 w-5" />
                 </button>
@@ -294,12 +255,49 @@ const Rooms: React.FC = () => {
         </>
       )}
 
+      {/* Password Modal */}
+      {passwordModal.isOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm animate-fade-in">
+             <div className="bg-slate-900 border border-white/10 w-full max-w-sm rounded-2xl shadow-2xl p-6">
+                <div className="flex items-center gap-2 mb-4 text-red-400">
+                    <Lock className="h-6 w-6" />
+                    <h2 className="text-xl font-bold text-white">Private Room</h2>
+                </div>
+                <p className="text-gray-400 text-sm mb-4">Enter password to join <strong>{passwordModal.room?.name}</strong></p>
+                
+                <input 
+                    type="password" 
+                    value={inputPassword}
+                    onChange={(e) => setInputPassword(e.target.value)}
+                    placeholder="Password"
+                    className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-white mb-4 focus:outline-none focus:border-indigo-500"
+                    autoFocus
+                />
+                
+                <div className="flex gap-3">
+                    <button 
+                        onClick={() => setPasswordModal({ isOpen: false, room: null })}
+                        className="flex-1 py-2 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg font-bold"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={handlePasswordSubmit}
+                        className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold"
+                    >
+                        Enter
+                    </button>
+                </div>
+             </div>
+        </div>
+      )}
+
       {/* Create Room Modal */}
-      {isModalOpen && user && (
+      {isCreateModalOpen && user && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
           <div className="bg-slate-900 border border-white/10 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden relative">
             <button 
-                onClick={() => setIsModalOpen(false)}
+                onClick={() => setIsCreateModalOpen(false)}
                 className="absolute top-4 right-4 text-gray-400 hover:text-white"
             >
                 <X className="h-6 w-6" />
@@ -309,15 +307,6 @@ const Rooms: React.FC = () => {
                <h2 className="text-2xl font-bold text-white mb-6">Create a Party Room</h2>
                
                <div className="space-y-4 mb-6">
-                 {/* Step 1: User Identity (Auto-filled) */}
-                 <div>
-                   <label className="block text-sm text-gray-400 mb-1">Host Name</label>
-                   <div className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-gray-300">
-                       {user.displayName}
-                   </div>
-                 </div>
-
-                 {/* Step 2: Room Name */}
                  <div>
                    <label className="block text-sm text-gray-400 mb-1">Room Name</label>
                    <input 
@@ -329,7 +318,6 @@ const Rooms: React.FC = () => {
                    />
                  </div>
 
-                 {/* Step 3: Select Content */}
                  <div>
                    <label className="block text-sm text-gray-400 mb-1">Select Content</label>
                    {selectedMedia ? (
@@ -352,7 +340,6 @@ const Rooms: React.FC = () => {
                         <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-500" />
                         {searching && <Loader2 className="absolute right-3 top-2.5 h-4 w-4 text-indigo-500 animate-spin" />}
                         
-                        {/* Dropdown Results */}
                         {searchResults.length > 0 && (
                           <div className="absolute top-full left-0 right-0 mt-2 bg-slate-800 border border-white/10 rounded-lg shadow-xl z-20 max-h-60 overflow-y-auto">
                              {searchResults.map(item => (
@@ -378,7 +365,6 @@ const Rooms: React.FC = () => {
                    )}
                  </div>
 
-                 {/* Step 4: Privacy */}
                  <div className="pt-2">
                     <label className="flex items-center gap-2 cursor-pointer mb-2">
                         <input 
@@ -387,7 +373,7 @@ const Rooms: React.FC = () => {
                           onChange={(e) => setIsPrivate(e.target.checked)}
                           className="rounded bg-slate-800 border-white/10 text-indigo-500 w-4 h-4" 
                         />
-                        <span className="text-sm text-gray-300">Private Room (Password Protected)</span>
+                        <span className="text-sm text-gray-300">Private Room</span>
                     </label>
                  </div>
                  
@@ -395,9 +381,9 @@ const Rooms: React.FC = () => {
                     <div className="animate-fade-in">
                        <input 
                           type="password" 
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="Enter Room Password"
+                          value={createPassword}
+                          onChange={(e) => setCreatePassword(e.target.value)}
+                          placeholder="Set Password"
                           className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500"
                        />
                     </div>
