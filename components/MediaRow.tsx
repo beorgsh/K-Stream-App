@@ -1,14 +1,15 @@
 import React, { useRef } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronRight as ChevronIcon } from 'lucide-react';
 import MediaCard from './MediaCard';
 import { Media } from '../types';
 
 interface MediaRowProps {
   title: string;
   items: Media[];
+  onSeeAll?: () => void;
 }
 
-const MediaRow: React.FC<MediaRowProps> = ({ title, items }) => {
+const MediaRow: React.FC<MediaRowProps> = ({ title, items, onSeeAll }) => {
   const rowRef = useRef<HTMLDivElement>(null);
 
   const slide = (offset: number) => {
@@ -21,9 +22,19 @@ const MediaRow: React.FC<MediaRowProps> = ({ title, items }) => {
 
   return (
     <div className="space-y-4 my-8 px-4 sm:px-6 lg:px-8 group/row relative z-20">
-      <h2 className="text-xl md:text-2xl font-bold text-white pl-1 border-l-4 border-indigo-500 flex items-center">
-        {title}
-      </h2>
+      <div className="flex items-center justify-between border-l-4 border-indigo-500 pl-3">
+          <h2 className="text-xl md:text-2xl font-bold text-white flex items-center">
+            {title}
+          </h2>
+          {onSeeAll && (
+              <button 
+                onClick={onSeeAll}
+                className="text-xs font-bold text-indigo-400 hover:text-white flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-white/5"
+              >
+                  See All <ChevronIcon className="h-4 w-4" />
+              </button>
+          )}
+      </div>
       
       <div className="relative group">
         <button

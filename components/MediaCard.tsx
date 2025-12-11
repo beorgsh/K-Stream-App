@@ -31,8 +31,8 @@ const MediaCard: React.FC<MediaCardProps> = ({ media }) => {
     : null;
 
   return (
-    <Link to={`/watch/${media.media_type}/${media.id}`} className="group relative block w-full flex-shrink-0 cursor-pointer">
-      <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-slate-800 shadow-md transition-transform duration-300 group-hover:scale-105 group-hover:shadow-xl group-hover:shadow-indigo-500/20 ring-1 ring-white/10">
+    <Link to={`/watch/${media.media_type}/${media.id}`} className="group/card relative block w-full flex-shrink-0 cursor-pointer">
+      <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-slate-800 shadow-md transition-transform duration-300 group-hover/card:scale-105 group-hover/card:shadow-xl group-hover/card:shadow-indigo-500/20 ring-1 ring-white/10">
         {media.poster_path ? (
           <img
             src={`${IMAGE_BASE_URL}/${POSTER_SIZE}${media.poster_path}`}
@@ -47,12 +47,12 @@ const MediaCard: React.FC<MediaCardProps> = ({ media }) => {
         )}
         
         {/* Play Icon Overlay on Hover */}
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center backdrop-blur-[1px]">
-             <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center shadow-lg transform scale-0 group-hover:scale-100 transition-transform duration-300 mb-2">
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/card:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center backdrop-blur-[1px]">
+             <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center shadow-lg transform scale-0 group-hover/card:scale-100 transition-transform duration-300 mb-2">
                 <Play className="h-5 w-5 fill-white text-white ml-0.5" />
              </div>
              {hasProgress && (
-                <div className="flex items-center gap-1 text-[10px] font-medium text-white bg-black/50 px-2 py-1 rounded-full backdrop-blur-md transform translate-y-4 group-hover:translate-y-0 transition-transform duration-300">
+                <div className="flex items-center gap-1 text-[10px] font-medium text-white bg-black/50 px-2 py-1 rounded-full backdrop-blur-md transform translate-y-4 group-hover/card:translate-y-0 transition-transform duration-300">
                     <Clock className="w-3 h-3" />
                     <span>{timeLeftMin}m left</span>
                 </div>
@@ -79,7 +79,7 @@ const MediaCard: React.FC<MediaCardProps> = ({ media }) => {
       </div>
       
       <div className="mt-2 space-y-1">
-        <h3 className="text-sm font-semibold text-white truncate group-hover:text-indigo-400 transition-colors">
+        <h3 className="text-sm font-semibold text-white truncate group-hover/card:text-indigo-400 transition-colors">
           {title}
         </h3>
         <div className="flex items-center justify-between text-xs text-gray-400">
