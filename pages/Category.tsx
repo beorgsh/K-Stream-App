@@ -67,16 +67,16 @@ const Category: React.FC<CategoryProps> = ({ type, isGlobal = false }) => {
   const titleType = type === 'movie' ? 'Movies' : (isGlobal ? 'TV Shows' : 'K-Dramas');
 
   return (
-    <div className="min-h-screen bg-slate-950 pt-24 px-4 sm:px-6 lg:px-8 pb-20 animate-fade-in">
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold text-white capitalize">
+    <div className="min-h-screen bg-slate-950 pt-24 px-3 sm:px-6 lg:px-8 pb-20 animate-fade-in">
+      <div className="flex items-center justify-between mb-6 sm:mb-8 px-1">
+        <h1 className="text-2xl sm:text-3xl font-bold text-white capitalize">
           {titlePrefix} {titleType}
         </h1>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-6">
         {items.map((item) => (
-          <div key={`${item.id}-${item.id}`} className="flex justify-center">
+          <div key={item.id} className="flex justify-center w-full">
             <MediaCard media={item} />
           </div>
         ))}

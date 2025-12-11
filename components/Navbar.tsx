@@ -192,11 +192,6 @@ const Navbar: React.FC = () => {
           </div>
 
           <div className="md:hidden flex items-center gap-2">
-             {user && (
-                 <div onClick={() => setIsProfileModalOpen(true)} className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold border border-white/20">
-                    {user.displayName ? user.displayName[0].toUpperCase() : 'U'}
-                 </div>
-             )}
             {/* Mode Toggle - Mobile */}
             <Link 
                 to={isGlobal ? "/" : "/global"}
@@ -212,12 +207,19 @@ const Navbar: React.FC = () => {
             >
                 {isGlobal ? 'KO' : 'GL'}
             </Link>
+            
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="text-gray-300 hover:text-white p-2"
             >
               {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
             </button>
+
+            {user && (
+                 <div onClick={() => setIsProfileModalOpen(true)} className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold border border-white/20 ml-1">
+                    {user.displayName ? user.displayName[0].toUpperCase() : 'U'}
+                 </div>
+             )}
           </div>
         </div>
       </div>

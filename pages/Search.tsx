@@ -38,15 +38,15 @@ const SearchPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 pt-24 px-4 sm:px-6 lg:px-8 animate-fade-in">
-      <h2 className="text-2xl font-bold text-white mb-6">
+    <div className="min-h-screen bg-slate-950 pt-24 px-3 sm:px-6 lg:px-8 animate-fade-in">
+      <h2 className="text-xl sm:text-2xl font-bold text-white mb-6 px-1">
         {isGlobal ? 'Global' : 'K-Drama'} Search Results for <span className="text-indigo-500">"{query}"</span>
       </h2>
 
       {results.length > 0 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-6">
           {results.map((item) => (
-            <div key={item.id} className="flex justify-center">
+            <div key={item.id} className="flex justify-center w-full">
                 <MediaCard media={item} />
             </div>
           ))}

@@ -31,7 +31,7 @@ const MediaCard: React.FC<MediaCardProps> = ({ media }) => {
     : null;
 
   return (
-    <Link to={`/watch/${media.media_type}/${media.id}`} className="group relative block w-36 md:w-48 flex-shrink-0 cursor-pointer">
+    <Link to={`/watch/${media.media_type}/${media.id}`} className="group relative block w-full flex-shrink-0 cursor-pointer">
       <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-slate-800 shadow-md transition-transform duration-300 group-hover:scale-105 group-hover:shadow-xl group-hover:shadow-indigo-500/20 ring-1 ring-white/10">
         {media.poster_path ? (
           <img

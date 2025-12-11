@@ -42,7 +42,9 @@ const MediaRow: React.FC<MediaRowProps> = ({ title, items }) => {
           }}
         >
           {items.map((item) => (
-            <MediaCard key={item.id} media={item} />
+            <div key={item.id} className="w-36 md:w-48 flex-shrink-0">
+                <MediaCard media={item} />
+            </div>
           ))}
         </div>
 
