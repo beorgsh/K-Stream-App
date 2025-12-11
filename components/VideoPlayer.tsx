@@ -68,8 +68,10 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   // --- Load Iframe ---
   useEffect(() => {
     let url = '';
+    // CHANGE: Set autoPlay to true. The parent component will handle the "User Interaction" check
+    // to ensure sound works.
     const params = new URLSearchParams({
-      autoPlay: 'false',
+      autoPlay: 'true', 
       theme: THEME_COLOR,
       poster: 'true',
       title: 'true',

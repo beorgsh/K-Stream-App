@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import Peer from 'peerjs';
-import { Loader2, LogOut, Users, MessageSquare, List, RefreshCw } from 'lucide-react';
+import { Loader2, LogOut, Users, MessageSquare, List, RefreshCw, AlertTriangle, Play } from 'lucide-react';
 import VideoPlayer, { VideoPlayerRef } from '../components/VideoPlayer';
 import ChatPanel from '../components/ChatPanel';
 import SeasonSelector from '../components/SeasonSelector';
@@ -26,6 +26,11 @@ const WatchParty: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('Initializing...');
   const [activeTab, setActiveTab] = useState<'chat' | 'episodes'>('chat');
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
+  
+  // Interaction State (Required for Autoplay Audio on Mobile/Chrome)
+  // Host has already interacted by creating room. Guests need to tap once.
+  const [hasInteracted, setHasInteracted] = useState(partyMode === 'host');
   
   // Media State
   const [details, setDetails] = useState<MediaDetails | null>(null);
@@ -96,11 +101,17 @@ const WatchParty: React.FC = () => {
   }, [peerId]);
 
   // --- Peer Config for better Mobile Connectivity ---
+  // Adding multiple free public STUN servers to increase chance of NAT traversal on mobile data
   const getPeerConfig = () => ({
       config: {
           iceServers: [
               { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:global.stun.twilio.com:3478' }
+              { urls: 'stun:stun1.l.google.com:19302' },
+              { urls: 'stun:stun2.l.google.com:19302' },
+              { urls: 'stun:stun3.l.google.com:19302' },
+              { urls: 'stun:stun4.l.google.com:19302' },
+              { urls: 'stun:stun.ekiga.net' },
+              { urls: 'stun:stun.ideasip.com' },
           ]
       }
   });
@@ -143,22 +154,19 @@ const WatchParty: React.FC = () => {
           conn.on('open', () => {
              // Send current media state to new user (P2P for sync)
              conn.send({ type: 'media_change', data: { season, episode } });
-             // Request player to send current time to sync new user
-             // (We can't easily poll iframe time, so we just send play state if active, 
-             // but ideally we wait for an event. For now, rely on Host movement)
              addSystemMessage(`${conn.metadata?.name || 'A user'} joined.`);
+             
+             // Auto-sync: Send a 'play' command shortly after they join to force alignment
+             // if the host is currently playing.
+             setTimeout(() => {
+                 conn.send({ type: 'request_sync_response', data: { action: 'play', time: 0 } });
+             }, 2000);
           });
 
           // Handle Manual Sync Request from Client
           conn.on('data', (data: any) => {
               if (data && data.type === 'request_sync') {
-                  // The client asked for a sync. 
-                  // Since we can't get strict time from iframe easily without polling,
-                  // we usually just rely on the next event. 
-                  // However, we can send a "seek" command to the CURRENT known time if we tracked it,
-                  // OR simply pause/play to force alignment.
-                  // For this implementation, we'll re-broadcast the last known state if possible.
-                  // Or simpler: Trigger a brief pause/play to resync everyone.
+                  // Simply pause and play to force everyone to align to host
                   playerRef.current?.pause(); 
                   setTimeout(() => playerRef.current?.play(), 500);
               }
@@ -175,7 +183,8 @@ const WatchParty: React.FC = () => {
           console.error(err);
           // Don't alert on peer-unavailable (client refresh), just log
           if (err.type !== 'peer-unavailable') {
-             alert("Connection Error: " + err.type);
+             // Suppress annoying alerts for host
+             console.warn("Host Peer Error:", err.type);
           }
       });
   };
@@ -194,7 +203,10 @@ const WatchParty: React.FC = () => {
       peerInstance.current = peer;
 
       peer.on('open', () => {
-          const conn = peer.connect(partyId, { metadata: { name: username } });
+          const conn = peer.connect(partyId, { 
+              metadata: { name: username },
+              reliable: true 
+          });
           hostConn.current = conn;
 
           conn.on('open', () => {
@@ -213,14 +225,14 @@ const WatchParty: React.FC = () => {
           // If connection takes too long
           setTimeout(() => {
               if (!conn.open) {
-                   setStatus('Connection timed out. Host may be offline.');
+                   setStatus('Connection timed out. Try switching networks (WiFi vs Data).');
               }
-          }, 10000);
+          }, 15000); // Increased timeout for mobile
       });
 
       peer.on('error', (err) => {
            console.error(err);
-           alert("Could not connect to room. The host might have left.");
+           alert("Could not connect. The host might be on a restricted network.");
            navigate('/rooms');
       });
   };
@@ -232,16 +244,34 @@ const WatchParty: React.FC = () => {
       }
   };
 
+  const handleLeaveClick = () => {
+      setShowLeaveModal(true);
+  };
+
+  const confirmLeave = () => {
+      navigate('/rooms');
+  };
+
+  const handleInteraction = () => {
+      setHasInteracted(true);
+      // If we are already connected, request a sync immediately after interaction
+      if (partyMode === 'client' && hostConn.current?.open) {
+          handleManualResync();
+      }
+  };
+
   // --- Sync Handling (PeerJS) ---
 
   const handleSyncData = (packet: any, senderConn?: any) => {
       if (!packet) return;
 
-      // NOTE: Chat is now handled by Firebase subscription, not here.
-
       // 2. Sync (Client Only - Receiving from Host)
-      if (partyMode === 'client' && packet.type === 'sync') {
+      if (partyMode === 'client' && (packet.type === 'sync' || packet.type === 'request_sync_response')) {
           const { action, time } = packet.data;
+          
+          // IMPORTANT: If user hasn't interacted, browser might block play() with sound.
+          // The overlay ensures hasInteracted is true before they see this.
+          
           if (action === 'play') playerRef.current?.play(time);
           if (action === 'pause') playerRef.current?.pause(time);
           if (action === 'seek') playerRef.current?.seek(time);
@@ -308,12 +338,51 @@ const WatchParty: React.FC = () => {
 
   if (loading || !details) {
       return (
-          <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
+          <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
               <Loader2 className="h-12 w-12 text-indigo-500 animate-spin mb-4" />
-              <h2 className="text-xl font-bold text-white">{status}</h2>
+              <h2 className="text-xl font-bold text-white mb-2">{status}</h2>
               {status.includes('timed out') && (
-                  <button onClick={() => window.location.reload()} className="mt-4 px-4 py-2 bg-indigo-600 rounded text-white text-sm">Retry</button>
+                  <div className="mt-4 space-y-3">
+                      <p className="text-gray-400 text-sm">Mobile networks often block P2P connections.</p>
+                      <p className="text-gray-400 text-sm">Try connecting both devices to the same WiFi.</p>
+                      <button onClick={() => window.location.reload()} className="px-4 py-2 bg-indigo-600 rounded text-white text-sm">Retry Connection</button>
+                  </div>
               )}
+          </div>
+      );
+  }
+
+  // --- Interaction Overlay for Autoplay Audio ---
+  if (!hasInteracted && partyMode === 'client') {
+      return (
+          <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
+              <div className="absolute top-0 left-0 w-full h-full">
+                   {details.backdrop_path && (
+                       <img 
+                        src={`https://image.tmdb.org/t/p/w1280${details.backdrop_path}`} 
+                        className="w-full h-full object-cover opacity-20"
+                        alt=""
+                       />
+                   )}
+                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-slate-950/80" />
+              </div>
+              
+              <div className="relative z-10 max-w-md">
+                  <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-indigo-600/30 animate-pulse">
+                      <Play className="h-10 w-10 text-white fill-current ml-1" />
+                  </div>
+                  <h1 className="text-3xl font-bold text-white mb-2">Ready to Watch?</h1>
+                  <h2 className="text-xl text-indigo-300 font-semibold mb-6">{details.title || details.name}</h2>
+                  <p className="text-gray-400 mb-8">
+                      Tap below to join the party and enable audio sync.
+                  </p>
+                  <button 
+                    onClick={handleInteraction}
+                    className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-600/20 transition-transform active:scale-95"
+                  >
+                      Join Party
+                  </button>
+              </div>
           </div>
       );
   }
@@ -354,13 +423,42 @@ const WatchParty: React.FC = () => {
                     </button>
                 )}
                 <button 
-                    onClick={() => navigate('/rooms')}
+                    onClick={handleLeaveClick}
                     className="flex items-center gap-2 px-3 py-1.5 lg:px-4 lg:py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-lg transition-colors text-xs lg:text-sm font-bold"
                 >
                     <LogOut className="h-3 w-3 lg:h-4 lg:w-4" /> <span className="hidden sm:inline">Leave</span>
                 </button>
             </div>
         </div>
+
+        {/* Leave Confirmation Modal */}
+        {showLeaveModal && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+                <div className="bg-slate-900 border border-white/10 w-full max-w-sm rounded-2xl shadow-2xl p-6 text-center">
+                    <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <AlertTriangle className="h-6 w-6 text-red-500" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">Leave Watch Party?</h3>
+                    <p className="text-gray-400 mb-6 text-sm">
+                        You will be disconnected from the chat and sync session.
+                    </p>
+                    <div className="flex gap-3">
+                        <button 
+                            onClick={() => setShowLeaveModal(false)}
+                            className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg font-bold transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            onClick={confirmLeave}
+                            className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-lg font-bold transition-colors"
+                        >
+                            Leave Room
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
 
         {/* Main Layout - Stack on Mobile, Row on Desktop */}
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
