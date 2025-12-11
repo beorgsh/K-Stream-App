@@ -4,6 +4,8 @@ import MediaRow from '../components/MediaRow';
 import { HomeSkeleton } from '../components/Skeleton';
 import { fetchTrendingKDramas, fetchPopularKMovies, fetchTopRatedKDramas } from '../services/api';
 import { getContinueWatching } from '../services/progress';
+import { auth } from '../services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { Media } from '../types';
 
 const Home: React.FC = () => {
@@ -13,8 +15,9 @@ const Home: React.FC = () => {
   const [continueWatching, setContinueWatching] = useState<Media[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Load General Content
   useEffect(() => {
-    const loadData = async () => {
+    const loadContent = async () => {
       // Min loading time to prevent flicker
       const minLoadTime = new Promise(resolve => setTimeout(resolve, 800));
       
@@ -28,9 +31,6 @@ const Home: React.FC = () => {
         setTrending(trendingData);
         setMovies(moviesData);
         setTopRated(topRatedData);
-        
-        // Load local progress (synchronous)
-        setContinueWatching(getContinueWatching());
       } catch (error) {
         console.error("Error loading home data", error);
       } finally {
@@ -38,7 +38,18 @@ const Home: React.FC = () => {
       }
     };
 
-    loadData();
+    loadContent();
+  }, []);
+
+  // Load User Specific Progress (Re-runs on login/logout)
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+        // Fetch progress based on auth state (Handled inside getContinueWatching)
+        const progressData = await getContinueWatching();
+        setContinueWatching(progressData);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   if (loading) {

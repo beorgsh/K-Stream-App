@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Search, Lock, Unlock, MonitorPlay, Loader2, X, AlertCircle } from 'lucide-react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Users, Plus, Search, Lock, Unlock, MonitorPlay, Loader2, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { searchContent } from '../services/api';
 import { subscribeToActiveRooms, auth } from '../services/firebase';
 import { Media, SavedRoom } from '../types';
@@ -17,6 +17,11 @@ const Rooms: React.FC = () => {
   
   // Auth State
   const [user, setUser] = useState<any>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
 
   // Room Creation State
   const [roomName, setRoomName] = useState('');
@@ -33,18 +38,25 @@ const Rooms: React.FC = () => {
   useEffect(() => {
      const unsub = onAuthStateChanged(auth, (u) => {
          setUser(u);
+         setAuthChecking(false);
+         if (!u) {
+             navigate('/login');
+         }
      });
      return () => unsub();
-  }, []);
+  }, [navigate]);
 
-  // Subscribe to Firebase
+  // Subscribe to Firebase - Only when authenticated
   useEffect(() => {
+    if (authChecking || !user) return;
+
+    setLoadingRooms(true);
     const unsubscribe = subscribeToActiveRooms((data) => {
       setRooms(data || []);
       setLoadingRooms(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [authChecking, user]);
 
   // Search logic for Modal
   useEffect(() => {
@@ -71,13 +83,12 @@ const Rooms: React.FC = () => {
   const handleCreateRoom = () => {
     if (!roomName || !selectedMedia || !user) return;
 
-    // We generate the ID here or let PeerJS do it in the player. 
-    // Best to let PeerJS do it, but we need to pass params to the player.
+    // We generate the ID here so PeerJS uses it in the player.
     const tempId = 'room-' + Math.random().toString(36).substr(2, 9);
     
     // Construct URL Params
     const params = new URLSearchParams({
-      partyId: tempId, // This will be overwritten by PeerJS host logic usually, but we pass it for consistent routing
+      partyId: tempId, 
       partyMode: 'host',
       name: user.displayName || 'Host',
       roomName: roomName,
@@ -100,7 +111,6 @@ const Rooms: React.FC = () => {
 
     if (room.isPrivate) {
       const input = prompt("Enter room password:");
-      // Client side check for MVP
       if (input !== room.password) {
          alert("Incorrect password");
          return;
@@ -125,6 +135,28 @@ const Rooms: React.FC = () => {
       }
       setIsModalOpen(true);
   };
+
+  // Pagination Logic
+  const totalPages = Math.ceil(rooms.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const currentRooms = rooms.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+  const handlePageChange = (page: number) => {
+    if (page < 1 || page > totalPages) return;
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  if (authChecking) {
+      return (
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+            <Loader2 className="h-10 w-10 text-indigo-500 animate-spin" />
+        </div>
+      );
+  }
+
+  // If check done and no user, we are redirecting, so return null or simple loader
+  if (!user) return null;
 
   return (
     <div className="min-h-screen bg-slate-950 pt-24 px-4 sm:px-6 lg:px-8 pb-20 animate-fade-in relative overflow-hidden">
@@ -169,63 +201,90 @@ const Rooms: React.FC = () => {
               </button>
           </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
-          {rooms.map((room) => (
-            <div key={room.id} className="bg-slate-900/50 backdrop-blur-sm border border-white/5 rounded-2xl overflow-hidden hover:border-indigo-500/30 transition-all group">
-              {/* Room Banner (Media Backdrop) */}
-              <div className="h-32 w-full relative bg-slate-800">
-                {room.media?.backdrop_path ? (
-                  <img 
-                      src={`${IMAGE_BASE_URL}/w780${room.media.backdrop_path}`} 
-                      className="w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-opacity"
-                      alt="Room Banner"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-600">
-                      <MonitorPlay className="h-10 w-10" />
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
+            {currentRooms.map((room) => (
+              <div key={room.id} className="bg-slate-900/50 backdrop-blur-sm border border-white/5 rounded-2xl overflow-hidden hover:border-indigo-500/30 transition-all group">
+                {/* Room Banner (Media Backdrop) */}
+                <div className="h-32 w-full relative bg-slate-800">
+                  {room.media?.backdrop_path ? (
+                    <img 
+                        src={`${IMAGE_BASE_URL}/w780${room.media.backdrop_path}`} 
+                        className="w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-opacity"
+                        alt="Room Banner"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-600">
+                        <MonitorPlay className="h-10 w-10" />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent" />
+                  <div className="absolute bottom-3 left-4 right-4">
+                      <h3 className="font-bold text-white text-lg shadow-black drop-shadow-md truncate">{room.name}</h3>
                   </div>
-                )}
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent" />
-                <div className="absolute bottom-3 left-4 right-4">
-                    <h3 className="font-bold text-white text-lg shadow-black drop-shadow-md truncate">{room.name}</h3>
+                  <div className="absolute top-3 right-3 bg-black/50 backdrop-blur-md px-2 py-1 rounded text-xs font-mono text-white flex items-center gap-1">
+                    <Users className="h-3 w-3" /> {room.users || 1}
+                  </div>
                 </div>
-                <div className="absolute top-3 right-3 bg-black/50 backdrop-blur-md px-2 py-1 rounded text-xs font-mono text-white flex items-center gap-1">
-                  <Users className="h-3 w-3" /> {room.users || 1}
-                </div>
-              </div>
 
-              {/* Room Details */}
-              <div className="p-4">
-                <div className="flex items-start justify-between mb-4">
-                    <div className="overflow-hidden">
-                      <p className="text-sm text-gray-400">Watching</p>
-                      <p className="text-indigo-400 font-medium truncate">{room.media?.title || 'Unknown Video'}</p>
-                    </div>
-                    {room.isPrivate ? (
-                        <Lock className="h-5 w-5 text-red-400 flex-shrink-0" />
-                    ) : (
-                        <Unlock className="h-5 w-5 text-green-400 flex-shrink-0" />
-                    )}
-                </div>
-                
-                <div className="flex items-center justify-between mt-4">
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold uppercase">
-                          {room.hostName ? room.hostName[0] : 'H'}
+                {/* Room Details */}
+                <div className="p-4">
+                  <div className="flex items-start justify-between mb-4">
+                      <div className="overflow-hidden">
+                        <p className="text-sm text-gray-400">Watching</p>
+                        <p className="text-indigo-400 font-medium truncate">{room.media?.title || 'Unknown Video'}</p>
                       </div>
-                      <span className="truncate max-w-[100px]">Hosted by {room.hostName || 'Unknown'}</span>
-                    </div>
-                    <button 
-                      onClick={() => handleJoinRoom(room)}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition-colors shadow-lg shadow-indigo-600/10"
-                    >
-                      Join Party
-                    </button>
+                      {room.isPrivate ? (
+                          <Lock className="h-5 w-5 text-red-400 flex-shrink-0" />
+                      ) : (
+                          <Unlock className="h-5 w-5 text-green-400 flex-shrink-0" />
+                      )}
+                  </div>
+                  
+                  <div className="flex items-center justify-between mt-4">
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold uppercase">
+                            {room.hostName ? room.hostName[0] : 'H'}
+                        </div>
+                        <span className="truncate max-w-[100px]">Hosted by {room.hostName || 'Unknown'}</span>
+                      </div>
+                      <button 
+                        onClick={() => handleJoinRoom(room)}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition-colors shadow-lg shadow-indigo-600/10"
+                      >
+                        Join Party
+                      </button>
+                  </div>
                 </div>
               </div>
+            ))}
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex justify-center items-center mt-12 gap-4 relative z-10">
+                <button 
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="p-2 rounded-full bg-slate-800 border border-white/10 hover:bg-indigo-600 disabled:opacity-50 disabled:hover:bg-slate-800 transition-colors"
+                >
+                    <ChevronLeft className="h-5 w-5" />
+                </button>
+                
+                <span className="text-gray-400 font-mono text-sm">
+                    Page <span className="text-white font-bold">{currentPage}</span> of {totalPages}
+                </span>
+
+                <button 
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="p-2 rounded-full bg-slate-800 border border-white/10 hover:bg-indigo-600 disabled:opacity-50 disabled:hover:bg-slate-800 transition-colors"
+                >
+                    <ChevronRight className="h-5 w-5" />
+                </button>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       {/* Create Room Modal */}
