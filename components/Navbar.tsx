@@ -12,6 +12,7 @@ const Navbar: React.FC = () => {
   
   // Profile Edit State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false); // Controls animation
   const [newDisplayName, setNewDisplayName] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -55,6 +56,18 @@ const Navbar: React.FC = () => {
       navigate('/login');
   };
 
+  // Modal Helpers
+  const openProfileModal = () => {
+      setIsProfileModalOpen(true);
+      // Small delay to ensure DOM is rendered before fading in
+      setTimeout(() => setModalVisible(true), 10);
+  };
+
+  const closeProfileModal = () => {
+      setModalVisible(false);
+      setTimeout(() => setIsProfileModalOpen(false), 300);
+  };
+
   const handleUpdateProfile = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!user || !newDisplayName.trim()) return;
@@ -67,7 +80,7 @@ const Navbar: React.FC = () => {
           // Force state update to reflect immediately in UI
           setUser({ ...user, displayName: newDisplayName });
           setToast({ message: "Profile updated successfully!", type: 'success' });
-          setTimeout(() => setIsProfileModalOpen(false), 1000);
+          setTimeout(() => closeProfileModal(), 1000);
       } catch (error) {
           console.error("Update failed", error);
           setToast({ message: "Failed to update profile.", type: 'error' });
@@ -174,7 +187,7 @@ const Navbar: React.FC = () => {
                                 <p className="text-xs text-gray-400">Signed in as</p>
                                 <p className="text-sm font-bold text-white truncate">{user.displayName || 'User'}</p>
                             </div>
-                            <button onClick={() => setIsProfileModalOpen(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white w-full text-left transition-colors">
+                            <button onClick={openProfileModal} className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white w-full text-left transition-colors">
                                 <Edit2 className="h-4 w-4" /> Edit Profile
                             </button>
                             <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-white/5 w-full text-left transition-colors">
@@ -216,7 +229,7 @@ const Navbar: React.FC = () => {
             </button>
 
             {user && (
-                 <div onClick={() => setIsProfileModalOpen(true)} className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold border border-white/20 ml-1">
+                 <div onClick={openProfileModal} className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold border border-white/20 ml-1">
                     {user.displayName ? user.displayName[0].toUpperCase() : 'U'}
                  </div>
              )}
@@ -251,7 +264,7 @@ const Navbar: React.FC = () => {
                 ) : (
                     <>
                      <button
-                        onClick={() => { setIsProfileModalOpen(true); setIsMobileMenuOpen(false); }}
+                        onClick={() => { openProfileModal(); setIsMobileMenuOpen(false); }}
                         className="text-gray-300 hover:text-white hover:bg-white/5 block px-3 py-3 rounded-md text-base font-medium flex items-center gap-2 w-full text-left"
                      >
                         <Edit2 className="h-4 w-4" /> Edit Profile
@@ -281,44 +294,51 @@ const Navbar: React.FC = () => {
           </div>
         </div>
       )}
-
-      {/* Edit Profile Modal */}
-      {isProfileModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-              <div className="bg-slate-900 border border-white/10 w-full max-w-sm rounded-2xl shadow-2xl p-6">
-                  <h3 className="text-xl font-bold text-white mb-4">Edit Profile</h3>
-                  <form onSubmit={handleUpdateProfile}>
-                      <label className="block text-sm text-gray-400 mb-2">Display Name</label>
-                      <input 
-                        type="text" 
-                        value={newDisplayName}
-                        onChange={(e) => setNewDisplayName(e.target.value)}
-                        className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500 mb-6"
-                        placeholder="Enter new name"
-                      />
-                      <div className="flex gap-3">
-                          <button 
-                            type="button"
-                            onClick={() => setIsProfileModalOpen(false)}
-                            className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg font-bold transition-colors"
-                          >
-                              Cancel
-                          </button>
-                          <button 
-                            type="submit"
-                            disabled={isUpdating}
-                            className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold transition-colors flex items-center justify-center gap-2"
-                          >
-                              {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                              Save
-                          </button>
-                      </div>
-                  </form>
-              </div>
-          </div>
-      )}
-
     </nav>
+
+    {/* Edit Profile Modal - Outside Nav for better stacking context */}
+    {isProfileModalOpen && (
+        <div 
+            className={`fixed inset-0 z-[100] overflow-y-auto bg-black/80 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${modalVisible ? 'opacity-100' : 'opacity-0'}`}
+            onClick={closeProfileModal}
+        >
+            <div className="flex min-h-full items-center justify-center p-4">
+                <div 
+                    className={`bg-slate-900 border border-white/10 w-full max-w-sm rounded-2xl shadow-2xl p-6 transform transition-all duration-300 ease-in-out ${modalVisible ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'}`}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <h3 className="text-xl font-bold text-white mb-4">Edit Profile</h3>
+                    <form onSubmit={handleUpdateProfile}>
+                        <label className="block text-sm text-gray-400 mb-2">Display Name</label>
+                        <input 
+                            type="text" 
+                            value={newDisplayName}
+                            onChange={(e) => setNewDisplayName(e.target.value)}
+                            className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500 mb-6"
+                            placeholder="Enter new name"
+                        />
+                        <div className="flex gap-3">
+                            <button 
+                                type="button"
+                                onClick={closeProfileModal}
+                                className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg font-bold transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                type="submit"
+                                disabled={isUpdating}
+                                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold transition-colors flex items-center justify-center gap-2"
+                            >
+                                {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                Save
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    )}
     </>
   );
 };
