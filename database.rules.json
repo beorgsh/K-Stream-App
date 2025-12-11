@@ -2,17 +2,21 @@
   "rules": {
     "users": {
       "$uid": {
-        "progress": {
-          ".read": "$uid === auth.uid",
-          ".write": "$uid === auth.uid"
-        }
+        // Allow users to read/write ANY data under their own ID (includes 'progress')
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid"
       }
     },
     "rooms": {
+      // Publicly readable lobby
       ".read": true,
+      // optimize sorting by timestamp
+      ".indexOn": ["timestamp"],
       "$roomId": {
+        // Auth users can manage rooms
         ".write": "auth != null",
         "sync": {
+           // Auth users can update sync state (Relay)
            ".write": "auth != null"
         }
       }
@@ -20,6 +24,7 @@
     "chats": {
       ".read": true,
       "$roomId": {
+        // Auth users can chat
         ".write": "auth != null"
       }
     }
