@@ -91,8 +91,18 @@ export interface ChatMessage {
 }
 
 export interface SavedRoom {
-  id: string;
-  name: string;
+  id: string; // The PeerJS ID
+  name: string; // Room Name (e.g. "Chill Night")
   timestamp: number;
-  users?: number; // For mock data
+  users: number;
+  isPrivate: boolean;
+  password?: string; // Storing simple password for this MVP
+  hostName: string;
+  media: {
+    id: number;
+    type: 'movie' | 'tv';
+    title: string;
+    poster_path: string | null;
+    backdrop_path: string | null;
+  };
 }

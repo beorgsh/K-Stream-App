@@ -110,6 +110,8 @@ const Watch: React.FC = () => {
             episode={episode}
             onPartyStateChange={setPartyState}
             mediaTitle={details.title || details.name}
+            posterPath={details.poster_path}
+            backdropPath={details.backdrop_path}
           />
           
           {/* Simple Title Bar below player */}

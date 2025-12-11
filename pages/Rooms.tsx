@@ -1,76 +1,44 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Search, Lock, Unlock, Play, MonitorPlay } from 'lucide-react';
+import { Users, Plus, Search, Lock, Unlock, MonitorPlay, Loader2, X, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { searchContent } from '../services/api';
-import { Media } from '../types';
+import { subscribeToActiveRooms } from '../services/firebase';
+import { Media, SavedRoom } from '../types';
 import { IMAGE_BASE_URL } from '../constants';
-
-interface Room {
-  id: string;
-  name: string;
-  host: string;
-  media: Media | null;
-  users: number;
-  isPrivate: boolean;
-}
 
 const Rooms: React.FC = () => {
   const navigate = useNavigate();
   const [isModalOpen, setIsModalOpen] = useState(false);
   
+  // Real Data State
+  const [rooms, setRooms] = useState<SavedRoom[]>([]);
+  const [loadingRooms, setLoadingRooms] = useState(true);
+
   // Room Creation State
   const [roomName, setRoomName] = useState('');
+  const [userName, setUserName] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
   const [password, setPassword] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
+  
+  // Search State
   const [mediaQuery, setMediaQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Media[]>([]);
   const [searching, setSearching] = useState(false);
 
-  // Mock Global Rooms
-  const [rooms, setRooms] = useState<Room[]>([
-    {
-      id: 'demo-room-1',
-      name: 'KDrama Chill Night',
-      host: 'Sarah',
-      media: {
-        id: 1396,
-        media_type: 'tv',
-        title: 'Breaking Bad', 
-        name: 'Breaking Bad',
-        poster_path: '/ggFHVNu6YYI5L9pCfOacjizRGt.jpg',
-        backdrop_path: '/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg',
-        overview: '',
-        vote_average: 9.2,
-        original_language: 'en'
-      },
-      users: 12,
-      isPrivate: false
-    },
-    {
-      id: 'demo-room-2',
-      name: 'Squid Game Marathon',
-      host: 'Player456',
-      media: {
-        id: 93405,
-        media_type: 'tv',
-        title: 'Squid Game',
-        name: 'Squid Game',
-        poster_path: '/dDlEmu3EZ0Pgg93K2SVNLCjCSvE.jpg',
-        backdrop_path: '/oaGvjB0DvdhXhOKsOOf7YIdFqDJ.jpg',
-        overview: '',
-        vote_average: 8.4,
-        original_language: 'ko'
-      },
-      users: 5,
-      isPrivate: true
-    }
-  ]);
+  // Subscribe to Firebase
+  useEffect(() => {
+    const unsubscribe = subscribeToActiveRooms((data) => {
+      setRooms(data);
+      setLoadingRooms(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Search logic for Modal
   useEffect(() => {
     const search = async () => {
-      if (!mediaQuery) {
+      if (!mediaQuery.trim()) {
         setSearchResults([]);
         return;
       }
@@ -90,29 +58,49 @@ const Rooms: React.FC = () => {
   }, [mediaQuery]);
 
   const handleCreateRoom = () => {
-    if (!roomName || !selectedMedia) return;
+    if (!roomName || !selectedMedia || !userName) return;
 
-    // Generate a random ID for P2P
-    const newRoomId = 'room-' + Math.random().toString(36).substr(2, 9);
+    // We generate the ID here or let PeerJS do it in the player. 
+    // Best to let PeerJS do it, but we need to pass params to the player.
+    const tempId = 'room-' + Math.random().toString(36).substr(2, 9);
     
-    // In a real app, this would save to a database.
-    // For now, we simulate success and navigate.
-    
-    navigate(`/watch/${selectedMedia.media_type}/${selectedMedia.id}?partyId=${newRoomId}&partyMode=host&name=${encodeURIComponent(roomName)}`);
+    // Construct URL Params
+    const params = new URLSearchParams({
+      partyId: tempId, // This will be overwritten by PeerJS host logic usually, but we pass it for consistent routing
+      partyMode: 'host',
+      name: userName,
+      roomName: roomName,
+      isPrivate: isPrivate.toString()
+    });
+
+    if (isPrivate && password) {
+      params.append('password', password);
+    }
+
+    navigate(`/watch/${selectedMedia.media_type}/${selectedMedia.id}?${params.toString()}`);
   };
 
-  const handleJoinRoom = (room: Room) => {
+  const handleJoinRoom = (room: SavedRoom) => {
+    let joinName = prompt("Enter your display name:", "Guest");
+    if (!joinName) return;
+
     if (room.isPrivate) {
       const input = prompt("Enter room password:");
-      // Mock password check
-      if (input !== '123') { // Simple mock check
-         alert("Join request sent to host (Mock)");
-         // In real P2P, you'd try to connect and handshake
+      // Client side check for MVP
+      if (input !== room.password) {
+         alert("Incorrect password");
+         return;
       }
     }
     
+    const params = new URLSearchParams({
+      partyId: room.id,
+      partyMode: 'client',
+      name: joinName
+    });
+
     if (room.media) {
-         navigate(`/watch/${room.media.media_type}/${room.media.id}?partyId=${room.id}&partyMode=client`);
+         navigate(`/watch/${room.media.type}/${room.media.id}?${params.toString()}`);
     }
   };
 
@@ -124,7 +112,9 @@ const Rooms: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row items-center justify-between mb-12 relative z-10 gap-6">
         <div>
-          <h1 className="text-3xl md:text-5xl font-bold text-white mb-2">Watch Parties</h1>
+          <h1 className="text-3xl md:text-5xl font-bold text-white mb-2 flex items-center gap-3">
+             Watch Parties <span className="text-base px-3 py-1 bg-red-600 text-white rounded-full font-bold animate-pulse">LIVE</span>
+          </h1>
           <p className="text-gray-400">Join active rooms globally or host your own screening.</p>
         </div>
         <button
@@ -136,85 +126,114 @@ const Rooms: React.FC = () => {
         </button>
       </div>
 
-      {/* Room Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
-        {rooms.map((room) => (
-          <div key={room.id} className="bg-slate-900/50 backdrop-blur-sm border border-white/5 rounded-2xl overflow-hidden hover:border-indigo-500/30 transition-all group">
-            {/* Room Banner (Media Backdrop) */}
-            <div className="h-32 w-full relative bg-slate-800">
-               {room.media?.backdrop_path ? (
-                 <img 
-                    src={`${IMAGE_BASE_URL}/w780${room.media.backdrop_path}`} 
-                    className="w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-opacity"
-                    alt="Room Banner"
-                 />
-               ) : (
-                 <div className="w-full h-full flex items-center justify-center text-gray-600">
-                    <MonitorPlay className="h-10 w-10" />
-                 </div>
-               )}
-               <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent" />
-               <div className="absolute bottom-3 left-4">
-                  <h3 className="font-bold text-white text-lg shadow-black drop-shadow-md">{room.name}</h3>
-               </div>
-               <div className="absolute top-3 right-3 bg-black/50 backdrop-blur-md px-2 py-1 rounded text-xs font-mono text-white flex items-center gap-1">
-                 <Users className="h-3 w-3" /> {room.users}
-               </div>
-            </div>
-
-            {/* Room Details */}
-            <div className="p-4">
-               <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <p className="text-sm text-gray-400">Watching</p>
-                    <p className="text-indigo-400 font-medium truncate w-48">{room.media?.title || room.media?.name}</p>
-                  </div>
-                  {room.isPrivate ? (
-                      <Lock className="h-5 w-5 text-red-400" />
-                  ) : (
-                      <Unlock className="h-5 w-5 text-green-400" />
-                  )}
-               </div>
-               
-               <div className="flex items-center justify-between mt-4">
-                  <div className="flex items-center gap-2 text-xs text-gray-500">
-                     <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold">
-                        {room.host[0]}
-                     </div>
-                     Hosted by {room.host}
-                  </div>
-                  <button 
-                    onClick={() => handleJoinRoom(room)}
-                    className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-semibold transition-colors"
-                  >
-                    Join
-                  </button>
-               </div>
-            </div>
-          </div>
-        ))}
-
-        {/* Empty State / Prompt */}
-        <div className="border-2 border-dashed border-white/10 rounded-2xl flex flex-col items-center justify-center p-8 text-center text-gray-500 hover:border-white/20 transition-colors cursor-pointer" onClick={() => setIsModalOpen(true)}>
-             <Plus className="h-10 w-10 mb-2 opacity-50" />
-             <p>Create New Room</p>
+      {/* Loading State */}
+      {loadingRooms && (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-10 w-10 text-indigo-500 animate-spin" />
         </div>
-      </div>
+      )}
 
-      {/* Note about persistence */}
-      <div className="mt-12 text-center text-xs text-gray-600 max-w-2xl mx-auto">
-        <p>Note: Without a backend server, this global list is simulated. Real P2P rooms work by sharing the Room ID directly. Created rooms will persist in your local history.</p>
-      </div>
+      {/* Room Grid */}
+      {!loadingRooms && rooms.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-white/10 rounded-2xl bg-slate-900/50">
+              <MonitorPlay className="h-16 w-16 text-gray-600 mb-4" />
+              <h3 className="text-xl font-bold text-gray-400">No Active Rooms</h3>
+              <p className="text-gray-500 mb-6">Be the first to start a party!</p>
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="px-6 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
+              >
+                Create One Now
+              </button>
+          </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
+          {rooms.map((room) => (
+            <div key={room.id} className="bg-slate-900/50 backdrop-blur-sm border border-white/5 rounded-2xl overflow-hidden hover:border-indigo-500/30 transition-all group">
+              {/* Room Banner (Media Backdrop) */}
+              <div className="h-32 w-full relative bg-slate-800">
+                {room.media?.backdrop_path ? (
+                  <img 
+                      src={`${IMAGE_BASE_URL}/w780${room.media.backdrop_path}`} 
+                      className="w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-opacity"
+                      alt="Room Banner"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-600">
+                      <MonitorPlay className="h-10 w-10" />
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent" />
+                <div className="absolute bottom-3 left-4 right-4">
+                    <h3 className="font-bold text-white text-lg shadow-black drop-shadow-md truncate">{room.name}</h3>
+                </div>
+                <div className="absolute top-3 right-3 bg-black/50 backdrop-blur-md px-2 py-1 rounded text-xs font-mono text-white flex items-center gap-1">
+                  <Users className="h-3 w-3" /> {room.users || 1}
+                </div>
+              </div>
+
+              {/* Room Details */}
+              <div className="p-4">
+                <div className="flex items-start justify-between mb-4">
+                    <div className="overflow-hidden">
+                      <p className="text-sm text-gray-400">Watching</p>
+                      <p className="text-indigo-400 font-medium truncate">{room.media?.title || 'Unknown Video'}</p>
+                    </div>
+                    {room.isPrivate ? (
+                        <Lock className="h-5 w-5 text-red-400 flex-shrink-0" />
+                    ) : (
+                        <Unlock className="h-5 w-5 text-green-400 flex-shrink-0" />
+                    )}
+                </div>
+                
+                <div className="flex items-center justify-between mt-4">
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold uppercase">
+                          {room.hostName ? room.hostName[0] : 'H'}
+                      </div>
+                      <span className="truncate max-w-[100px]">Hosted by {room.hostName || 'Unknown'}</span>
+                    </div>
+                    <button 
+                      onClick={() => handleJoinRoom(room)}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition-colors shadow-lg shadow-indigo-600/10"
+                    >
+                      Join Party
+                    </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Create Room Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-slate-900 border border-white/10 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-slate-900 border border-white/10 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden relative">
+            <button 
+                onClick={() => setIsModalOpen(false)}
+                className="absolute top-4 right-4 text-gray-400 hover:text-white"
+            >
+                <X className="h-6 w-6" />
+            </button>
+            
             <div className="p-6">
                <h2 className="text-2xl font-bold text-white mb-6">Create a Party Room</h2>
                
-               {/* Step 1: Room Details */}
                <div className="space-y-4 mb-6">
+                 {/* Step 1: User Identity */}
+                 <div>
+                   <label className="block text-sm text-gray-400 mb-1">Your Name</label>
+                   <input 
+                      type="text" 
+                      value={userName}
+                      onChange={(e) => setUserName(e.target.value)}
+                      placeholder="Display Name"
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500"
+                   />
+                 </div>
+
+                 {/* Step 2: Room Name */}
                  <div>
                    <label className="block text-sm text-gray-400 mb-1">Room Name</label>
                    <input 
@@ -226,11 +245,11 @@ const Rooms: React.FC = () => {
                    />
                  </div>
 
-                 {/* Step 2: Select Content */}
+                 {/* Step 3: Select Content */}
                  <div>
                    <label className="block text-sm text-gray-400 mb-1">Select Content</label>
                    {selectedMedia ? (
-                     <div className="flex items-center gap-3 bg-indigo-900/20 border border-indigo-500/30 p-2 rounded-lg">
+                     <div className="flex items-center gap-3 bg-indigo-900/20 border border-indigo-500/30 p-2 rounded-lg relative group">
                         <img src={`${IMAGE_BASE_URL}/w92${selectedMedia.poster_path}`} className="w-10 h-14 object-cover rounded" alt="" />
                         <div className="flex-1 min-w-0">
                            <p className="text-sm font-bold text-white truncate">{selectedMedia.title || selectedMedia.name}</p>
@@ -243,10 +262,11 @@ const Rooms: React.FC = () => {
                             type="text" 
                             value={mediaQuery}
                             onChange={(e) => setMediaQuery(e.target.value)}
-                            placeholder="Search for a movie or show..."
+                            placeholder="Search movies or shows..."
                             className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 pl-10 text-white focus:outline-none focus:border-indigo-500"
                         />
                         <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-500" />
+                        {searching && <Loader2 className="absolute right-3 top-2.5 h-4 w-4 text-indigo-500 animate-spin" />}
                         
                         {/* Dropdown Results */}
                         {searchResults.length > 0 && (
@@ -262,9 +282,9 @@ const Rooms: React.FC = () => {
                                     className="w-8 h-12 object-cover rounded bg-slate-700" 
                                     alt="" 
                                   />
-                                  <div>
-                                     <p className="text-sm text-gray-200 font-medium">{item.title || item.name}</p>
-                                     <p className="text-xs text-gray-500 capitalize">{item.media_type}</p>
+                                  <div className="min-w-0">
+                                     <p className="text-sm text-gray-200 font-medium truncate">{item.title || item.name}</p>
+                                     <p className="text-xs text-gray-500 capitalize">{item.media_type} • {item.release_date ? item.release_date.split('-')[0] : 'N/A'}</p>
                                   </div>
                                </button>
                              ))}
@@ -274,46 +294,40 @@ const Rooms: React.FC = () => {
                    )}
                  </div>
 
-                 <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2 cursor-pointer">
+                 {/* Step 4: Privacy */}
+                 <div className="pt-2">
+                    <label className="flex items-center gap-2 cursor-pointer mb-2">
                         <input 
                           type="checkbox" 
                           checked={isPrivate} 
                           onChange={(e) => setIsPrivate(e.target.checked)}
-                          className="rounded bg-slate-800 border-white/10 text-indigo-500" 
+                          className="rounded bg-slate-800 border-white/10 text-indigo-500 w-4 h-4" 
                         />
-                        <span className="text-sm text-gray-300">Private Room</span>
+                        <span className="text-sm text-gray-300">Private Room (Password Protected)</span>
                     </label>
                  </div>
                  
                  {isPrivate && (
                     <div className="animate-fade-in">
-                       <label className="block text-sm text-gray-400 mb-1">Password</label>
                        <input 
                           type="password" 
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
+                          placeholder="Enter Room Password"
                           className="w-full bg-black/30 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500"
                        />
                     </div>
                  )}
                </div>
 
-               <div className="flex gap-3">
-                 <button 
-                    onClick={() => setIsModalOpen(false)}
-                    className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-semibold transition-colors"
-                 >
-                    Cancel
-                 </button>
-                 <button 
-                    onClick={handleCreateRoom}
-                    disabled={!roomName || !selectedMedia}
-                    className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-600/20"
-                 >
-                    Create & Host
-                 </button>
-               </div>
+               <button 
+                  onClick={handleCreateRoom}
+                  disabled={!roomName || !selectedMedia || !userName}
+                  className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-600/20 active:scale-95 flex items-center justify-center gap-2"
+               >
+                  <MonitorPlay className="h-5 w-5" />
+                  Create & Host Party
+               </button>
             </div>
           </div>
         </div>

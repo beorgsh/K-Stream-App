@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MonitorPlay, Menu, X, Globe } from 'lucide-react';
+import { Search, MonitorPlay, Menu, X, Globe, Users } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 
 const Navbar: React.FC = () => {
@@ -32,6 +32,7 @@ const Navbar: React.FC = () => {
     { name: 'Home', path: isGlobal ? '/global' : '/' },
     { name: 'Movies', path: isGlobal ? '/global/movies' : '/movies' },
     { name: 'TV Shows', path: isGlobal ? '/global/tv' : '/tv' },
+    { name: 'Watch Party', path: '/rooms' },
   ];
 
   return (
@@ -61,8 +62,11 @@ const Navbar: React.FC = () => {
                   <Link
                     key={link.name}
                     to={link.path}
-                    className="px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-white/5 text-gray-300 hover:text-white"
+                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-white/5 ${
+                        link.path === '/rooms' ? 'text-indigo-400 hover:text-indigo-300' : 'text-gray-300 hover:text-white'
+                    }`}
                   >
+                    {link.path === '/rooms' && <Users className="inline-block w-4 h-4 mr-1.5 -mt-0.5" />}
                     {link.name}
                   </Link>
                 ))}

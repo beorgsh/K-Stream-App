@@ -4,7 +4,6 @@ import { FIREBASE_CONFIG } from '../constants';
 import { SavedRoom } from '../types';
 
 // Initialize Firebase
-// Note: If config is invalid (default placeholders), this might throw warnings in console but won't crash app
 let db: any;
 try {
   const app = initializeApp(FIREBASE_CONFIG);
@@ -13,7 +12,20 @@ try {
   console.warn("Firebase not initialized. Check your constants.ts config.");
 }
 
-export const registerRoomInLobby = (roomId: string, roomName: string, mediaTitle: string) => {
+export const registerRoomInLobby = (
+  roomId: string, 
+  roomName: string, 
+  hostName: string,
+  isPrivate: boolean,
+  password: string | undefined,
+  mediaInfo: {
+    id: number;
+    type: 'movie' | 'tv';
+    title: string;
+    poster_path: string | null;
+    backdrop_path: string | null;
+  }
+) => {
   if (!db) return;
 
   const roomRef = ref(db, `rooms/${roomId}`);
@@ -21,11 +33,13 @@ export const registerRoomInLobby = (roomId: string, roomName: string, mediaTitle
   // Create room entry
   const roomData: SavedRoom = {
     id: roomId,
-    name: roomName || `Watch Party`,
+    name: roomName || `${hostName}'s Party`,
+    hostName: hostName,
     timestamp: Date.now(),
     users: 1, // Start with host
-    // We can add extra metadata if we want (media title, etc)
-    // For type compatibility we store title in name or extended props
+    isPrivate: isPrivate,
+    password: password || '', // Only stored for client-side check in this simple MVP
+    media: mediaInfo
   };
 
   set(roomRef, roomData);

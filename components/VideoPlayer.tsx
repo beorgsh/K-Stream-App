@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { PLAYER_BASE_URL, THEME_COLOR } from '../constants';
 import { saveProgress } from '../services/progress';
 import { registerRoomInLobby, removeRoomFromLobby } from '../services/firebase';
-import { Users, Play, X, MessageSquare, Copy } from 'lucide-react';
+import { Users } from 'lucide-react';
 import Peer from 'peerjs';
 import { ChatMessage, SavedRoom } from '../types';
 
@@ -20,7 +20,9 @@ interface VideoPlayerProps {
     roomId?: string,
     error?: string 
   }) => void;
-  mediaTitle?: string; // Passed to register room name
+  mediaTitle?: string;
+  posterPath?: string | null;
+  backdropPath?: string | null;
 }
 
 export interface VideoPlayerRef {
@@ -30,7 +32,7 @@ export interface VideoPlayerRef {
 }
 
 const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ 
-  tmdbId, type, season = 1, episode = 1, onNextEpisode, onPartyStateChange, mediaTitle 
+  tmdbId, type, season = 1, episode = 1, onNextEpisode, onPartyStateChange, mediaTitle, posterPath, backdropPath
 }, ref) => {
   const [src, setSrc] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -43,8 +45,11 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [lastError, setLastError] = useState<string | undefined>(undefined);
 
-  // User Identity
+  // User Identity & Room Config
   const username = searchParams.get('name') || 'Guest';
+  const roomNameParam = searchParams.get('roomName');
+  const roomPasswordParam = searchParams.get('password');
+  const isPrivateParam = searchParams.get('isPrivate') === 'true';
 
   // Peer Refs
   const peerInstance = useRef<Peer | null>(null);
@@ -151,8 +156,8 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
           const rooms: SavedRoom[] = stored ? JSON.parse(stored) : [];
           // Remove duplicates
           const filtered = rooms.filter(r => r.id !== id);
+          // @ts-ignore - Partial save for history is fine
           filtered.unshift({ id, name, timestamp: Date.now() });
-          // Limit to 10
           const limited = filtered.slice(0, 10);
           localStorage.setItem('kstream_recent_rooms', JSON.stringify(limited));
       } catch (e) {
@@ -174,11 +179,24 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
           peerInstance.current = peer;
           addMessage({ id: 'sys-start', text: 'Room created. Waiting for others...', sender: 'System', timestamp: Date.now(), isSystem: true });
           
-          const roomName = `Watching ${mediaTitle || 'Video'}`;
-          saveToHistory(id, roomName);
+          const finalRoomName = roomNameParam || `Watching ${mediaTitle || 'Video'}`;
+          saveToHistory(id, finalRoomName);
           
-          // Register in Firebase Lobby
-          registerRoomInLobby(id, roomName, mediaTitle || '');
+          // Register in Firebase Lobby with full details
+          registerRoomInLobby(
+              id, 
+              finalRoomName, 
+              username,
+              isPrivateParam,
+              roomPasswordParam || undefined,
+              {
+                  id: tmdbId,
+                  type,
+                  title: mediaTitle || 'Unknown Title',
+                  poster_path: posterPath || null,
+                  backdrop_path: backdropPath || null
+              }
+          );
       });
 
       peer.on('connection', (conn) => {

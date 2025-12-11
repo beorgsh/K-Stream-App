@@ -7,6 +7,7 @@ import Watch from './pages/Watch';
 import Details from './pages/Details';
 import SearchPage from './pages/Search';
 import Category from './pages/Category';
+import Rooms from './pages/Rooms';
 
 // Simple footer component
 const Footer = () => (
@@ -34,6 +35,9 @@ const App: React.FC = () => {
             <Route path="/global/movies" element={<Category type="movie" isGlobal={true} />} />
             <Route path="/global/tv" element={<Category type="tv" isGlobal={true} />} />
             <Route path="/global/search" element={<SearchPage />} />
+
+            {/* Watch Party Lobby */}
+            <Route path="/rooms" element={<Rooms />} />
 
             {/* Details & Player Routes */}
             <Route path="/details/:type/:id" element={<Details />} />
