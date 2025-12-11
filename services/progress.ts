@@ -1,6 +1,5 @@
-import { db, auth } from './firebase';
+import { db, waitForAuth } from './firebase';
 import { ref, set, get, child } from 'firebase/database';
-import { onAuthStateChanged } from 'firebase/auth';
 import { Media, StoredMediaData } from '../types';
 
 const STORAGE_KEY = 'vidFastProgress';
@@ -27,91 +26,77 @@ const formatData = (data: any): StoredMediaData | null => {
 };
 
 export const getContinueWatching = async (): Promise<Media[]> => {
-  return new Promise((resolve) => {
-    // Quick check if auth is ready
-    const checkAuth = () => {
-        if (!auth) return Promise.resolve(null);
-        if (auth.currentUser) return Promise.resolve(auth.currentUser);
-        return new Promise((r) => {
-             const unsub = onAuthStateChanged(auth, (u) => {
-                 unsub();
-                 r(u);
-             });
-             setTimeout(() => { unsub(); r(auth.currentUser); }, 1500);
-        });
-    };
+  const user = await waitForAuth();
 
-    checkAuth().then((user: any) => {
-        // Always try DB if user exists and DB is initialized
-        if (user && db) {
-          const dbRef = ref(db);
-          get(child(dbRef, `users/${user.uid}/progress`))
-            .then((snapshot) => {
-              if (snapshot.exists()) {
-                const data = snapshot.val();
-                const formatted = Object.values(data)
-                  // @ts-ignore
-                  .sort((a: any, b: any) => b.last_updated - a.last_updated)
-                  .map((item: any) => ({
-                    id: item.id,
-                    title: item.title,
-                    name: item.title,
-                    poster_path: item.poster_path,
-                    backdrop_path: item.backdrop_path,
-                    overview: '',
-                    vote_average: 0,
-                    media_type: item.type,
-                    original_language: 'en',
-                    progress: item.progress,
-                    last_season: item.last_season_watched,
-                    last_episode: item.last_episode_watched
-                  }));
-                resolve(formatted);
-              } else {
-                resolve([]);
-              }
-            })
-            .catch((err) => {
-              console.warn("DB Fetch failed, falling back to local storage:", err.message);
-              // Fallback to local storage for this read
-              loadFromLocal(resolve);
-            });
-        } else {
-           // Guest or No DB Config -> Local Storage
-           loadFromLocal(resolve);
-        }
-    });
-  });
-};
-
-const loadFromLocal = (resolve: Function) => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) {
-        resolve([]);
-        return;
-    }
-    try {
-        const data: Record<string, StoredMediaData> = JSON.parse(stored);
-        const formatted = Object.values(data)
-            .sort((a, b) => b.last_updated - a.last_updated)
-            .map(item => ({
+  // 1. If Authenticated: Fetch from Firebase DB
+  if (user && db) {
+      try {
+          const snapshot = await get(child(ref(db), `users/${user.uid}/progress`));
+          if (snapshot.exists()) {
+            const data = snapshot.val();
+            const formatted = Object.values(data)
+                // @ts-ignore
+                .sort((a: any, b: any) => b.last_updated - a.last_updated)
+                .map((item: any) => ({
                 id: item.id,
                 title: item.title,
                 name: item.title,
                 poster_path: item.poster_path,
                 backdrop_path: item.backdrop_path,
-                overview: '', 
-                vote_average: 0, 
+                overview: '',
+                vote_average: 0,
                 media_type: item.type,
                 original_language: 'en',
                 progress: item.progress,
                 last_season: item.last_season_watched,
                 last_episode: item.last_episode_watched
-            }));
-        resolve(formatted);
-    } catch (e) {
-        resolve([]);
-    }
+                }));
+            return formatted;
+          } else {
+              // User has no data in DB yet
+              return [];
+          }
+      } catch (err: any) {
+          console.error("DB Fetch Error:", err.message);
+          // If DB fails (offline/error), fallback to local below
+      }
+  }
+
+  // 2. Fallback / Guest Mode: Fetch from Local Storage
+  return loadFromLocal();
+};
+
+const loadFromLocal = (): Promise<Media[]> => {
+    return new Promise((resolve) => {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (!stored) {
+            resolve([]);
+            return;
+        }
+        try {
+            const data: Record<string, StoredMediaData> = JSON.parse(stored);
+            const formatted = Object.values(data)
+                .sort((a, b) => b.last_updated - a.last_updated)
+                .map(item => ({
+                    id: item.id,
+                    title: item.title,
+                    name: item.title,
+                    poster_path: item.poster_path,
+                    backdrop_path: item.backdrop_path,
+                    overview: '', 
+                    vote_average: 0, 
+                    media_type: item.type,
+                    original_language: 'en',
+                    progress: item.progress,
+                    last_season: item.last_season_watched,
+                    last_episode: item.last_episode_watched
+                }));
+            resolve(formatted);
+        } catch (e) {
+            console.error("Local storage error", e);
+            resolve([]);
+        }
+    });
 };
 
 export const saveProgress = async (rawData: any) => {
@@ -123,7 +108,7 @@ export const saveProgress = async (rawData: any) => {
     // Sanitize to ensure no undefined values reach Firebase
     const safeData = JSON.parse(JSON.stringify(formatted, (k, v) => v === undefined ? null : v));
 
-    // 1. Save to LocalStorage (as cache/backup)
+    // A. Always save to local storage as a backup (cache)
     try {
         const stored = localStorage.getItem(STORAGE_KEY);
         const current = stored ? JSON.parse(stored) : {};
@@ -133,11 +118,13 @@ export const saveProgress = async (rawData: any) => {
         console.error("Local save failed", e);
     }
 
-    // 2. Save to Database (Primary)
-    let user = auth?.currentUser;
+    // B. If Logged In: Save to Firebase DB
+    const user = await waitForAuth();
     if (user && db) {
-        // @ts-ignore
         set(ref(db, `users/${user.uid}/progress/${key}`), safeData)
+        .then(() => {
+            console.log("Progress saved to Firebase DB");
+        })
         .catch(err => {
              console.error("Database save failed:", err.message);
         });

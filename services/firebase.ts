@@ -19,7 +19,7 @@ try {
 
 export { auth, db };
 
-const waitForAuth = (): Promise<any> => {
+export const waitForAuth = (): Promise<any> => {
     return new Promise((resolve) => {
         if (!auth) { resolve(null); return; }
         if (auth.currentUser) { resolve(auth.currentUser); return; }
