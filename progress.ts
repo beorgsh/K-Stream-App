@@ -37,6 +37,8 @@ export const getContinueWatching = async (): Promise<Media[]> => {
                  unsub();
                  r(u);
              });
+             // Fallback
+             setTimeout(() => { unsub(); r(auth.currentUser); }, 2000);
         });
     };
 
@@ -72,48 +74,54 @@ export const getContinueWatching = async (): Promise<Media[]> => {
             })
             .catch((err) => {
               // Handle 404 (Database not created or URL wrong) gracefully
-              if (err.message && err.message.includes('404')) {
-                  console.warn("Firebase DB Error (404): Ensure Realtime Database is created in Firebase Console.");
+              if (err.message && (err.message.includes('404') || err.message.includes('Client is offline'))) {
+                  console.warn("DB unreachable, trying local storage fallback.");
+                  // Fallback to local storage if DB fails hard
+                  loadFromLocal(resolve);
               } else if (err.message && err.message.includes('permission_denied')) {
-                  console.warn("Firebase DB Permission Denied: Check Rules.");
+                  console.warn("DB Permission Denied. Check Rules. Falling back to local.");
+                  loadFromLocal(resolve);
               } else {
                   console.error("Error fetching progress from DB:", err);
+                  resolve([]);
               }
-              resolve([]);
             });
         } else {
-          // 2. Guest or No DB: Fetch from LocalStorage
-          const stored = localStorage.getItem(STORAGE_KEY);
-          if (!stored) {
-            resolve([]);
-            return;
-          }
-          try {
-            const data: Record<string, StoredMediaData> = JSON.parse(stored);
-            const formatted = Object.values(data)
-              .sort((a, b) => b.last_updated - a.last_updated)
-              .map(item => ({
-                id: item.id,
-                title: item.title,
-                name: item.title, // For TV compatibility
-                poster_path: item.poster_path,
-                backdrop_path: item.backdrop_path,
-                overview: '', 
-                vote_average: 0, 
-                media_type: item.type,
-                original_language: 'en',
-                progress: item.progress,
-                last_season: item.last_season_watched,
-                last_episode: item.last_episode_watched
-              }));
-            resolve(formatted);
-          } catch (e) {
-            console.error("Failed to parse local progress data", e);
-            resolve([]);
-          }
+           loadFromLocal(resolve);
         }
     });
   });
+};
+
+const loadFromLocal = (resolve: Function) => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) {
+    resolve([]);
+    return;
+    }
+    try {
+    const data: Record<string, StoredMediaData> = JSON.parse(stored);
+    const formatted = Object.values(data)
+        .sort((a, b) => b.last_updated - a.last_updated)
+        .map(item => ({
+        id: item.id,
+        title: item.title,
+        name: item.title,
+        poster_path: item.poster_path,
+        backdrop_path: item.backdrop_path,
+        overview: '', 
+        vote_average: 0, 
+        media_type: item.type,
+        original_language: 'en',
+        progress: item.progress,
+        last_season: item.last_season_watched,
+        last_episode: item.last_episode_watched
+        }));
+    resolve(formatted);
+    } catch (e) {
+    console.error("Failed to parse local progress data", e);
+    resolve([]);
+    }
 };
 
 export const saveProgress = async (rawData: any) => {
@@ -129,6 +137,7 @@ export const saveProgress = async (rawData: any) => {
                  unsub();
                  resolve(u);
              });
+             setTimeout(() => resolve(null), 1000);
         });
     }
 
@@ -137,27 +146,27 @@ export const saveProgress = async (rawData: any) => {
     // Sanitize undefineds
     const safeData = JSON.parse(JSON.stringify(formatted, (k, v) => v === undefined ? null : v));
 
+    // ALWAYS save to local storage as backup/cache
+    try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        const current = stored ? JSON.parse(stored) : {};
+        current[key] = safeData;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+    } catch (e) {
+        console.error("Failed to save local progress", e);
+    }
+
+    // Attempt DB save
     if (user && db) {
-        // Save to Firebase (User Specific)
         // @ts-ignore
         set(ref(db, `users/${user.uid}/progress/${key}`), safeData)
         .catch(err => {
             // Silently fail or log warning if DB is unreachable/404
              if (err.message && err.message.includes('404')) {
-                  console.warn("Sync failed: Database 404 (Check URL/Creation)");
+                  console.warn("Sync failed: Database 404");
              } else {
                   console.warn("Sync failed (DB):", err.message);
              }
         });
-    } else {
-        // Save to LocalStorage (Guest)
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            const current = stored ? JSON.parse(stored) : {};
-            current[key] = safeData;
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-        } catch (e) {
-            console.error("Failed to save local progress", e);
-        }
     }
 };

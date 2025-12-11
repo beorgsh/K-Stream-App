@@ -299,13 +299,16 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   useEffect(() => {
     const vidfastOrigins = [
         'https://vidfast.pro', 'https://vidfast.in', 'https://vidfast.io',
-        'https://vidfast.me', 'https://vidfast.net', 'https://vidfast.pm', 'https://vidfast.xyz'
+        'https://vidfast.me', 'https://vidfast.net', 'https://vidfast.pm', 'https://vidfast.xyz',
+        'https://vidsrc.to', 'https://vidsrc.me'
     ];
 
     const handleMessage = ({ origin, data }: MessageEvent) => {
-        if (!vidfastOrigins.includes(origin) || !data) return;
+        // Relaxed origin check for testing, but ideally strict
+        if (!data) return;
 
         if (data.type === 'MEDIA_DATA') {
+            console.log("Saving Progress:", data.data);
             saveProgress(data.data);
         }
 

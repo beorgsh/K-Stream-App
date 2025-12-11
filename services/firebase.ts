@@ -31,11 +31,26 @@ const waitForAuth = (): Promise<any> => {
             resolve(auth.currentUser);
             return;
         }
-        // Otherwise wait for the first emission
+        
+        let resolved = false;
+
         const unsubscribe = onAuthStateChanged(auth, (user) => {
+            if (resolved) return;
+            resolved = true;
             unsubscribe();
             resolve(user);
         });
+
+        // Safety timeout in case onAuthStateChanged hangs or network fails
+        setTimeout(() => {
+            if (!resolved) {
+                resolved = true;
+                // unsubscribe might not be accessible if it hasn't returned yet, 
+                // but usually it's fine. We just resolve null.
+                console.warn("Auth check timed out, proceeding as guest/unauthenticated.");
+                resolve(auth?.currentUser || null);
+            }
+        }, 3000);
     });
 };
 
@@ -95,7 +110,7 @@ export const registerRoomInLobby = async (
   } catch (error: any) {
       console.error("Failed to register room in DB:", error);
       if (error.code === 'PERMISSION_DENIED') {
-          console.warn("Check your Firebase Realtime Database Rules. They might be blocking writes to /rooms.");
+          console.error("FIREBASE RULES ERROR: You must allow writes to '/rooms'. Go to Firebase Console -> Realtime Database -> Rules and set '.write': 'auth != null' for 'rooms'.");
       }
   }
 };
@@ -121,12 +136,7 @@ export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) =
       
       if (isCancelled) return;
 
-      if (!user) {
-          // If no user after wait, return empty (rules will likely fail anyway)
-          callback([]);
-          return;
-      }
-
+      // Even if no user, we try to fetch rooms (maybe rules are public)
       const roomsRef = ref(db, 'rooms');
       
       // Attach listener
@@ -142,9 +152,12 @@ export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) =
             callback([]);
             }
         }, (error) => {
-            console.error("Error fetching rooms (Subscription):", error.message);
+            console.error("Error fetching rooms:", error.message);
             if (error.message.includes('permission_denied')) {
-                console.warn("PERMISSION_DENIED: Check Firebase Console -> Realtime Database -> Rules. Ensure 'rooms' is readable.");
+                 console.error("FIREBASE RULES ERROR: You must allow reads to '/rooms'. Set '.read': true in Firebase Console -> Realtime Database -> Rules.");
+            }
+            if (error.message.includes('404')) {
+                 console.error("FIREBASE 404: Database URL not found. 1) Go to Firebase Console -> Realtime Database. 2) Create the database if missing. 3) Ensure constant.ts matches the URL displayed there.");
             }
             callback([]);
         });
