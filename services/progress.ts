@@ -28,7 +28,7 @@ const formatData = (data: any): StoredMediaData | null => {
 export const getContinueWatching = async (): Promise<Media[]> => {
   const user = await waitForAuth();
 
-  // 1. If Authenticated: Fetch from Firebase DB
+  // 1. If Authenticated: Fetch ONLY from Firebase DB
   if (user && db) {
       try {
           const snapshot = await get(child(ref(db), `users/${user.uid}/progress`));
@@ -53,16 +53,15 @@ export const getContinueWatching = async (): Promise<Media[]> => {
                 }));
             return formatted;
           } else {
-              // User has no data in DB yet
               return [];
           }
       } catch (err: any) {
           console.error("DB Fetch Error:", err.message);
-          // If DB fails (offline/error), fallback to local below
+          return [];
       }
   }
 
-  // 2. Fallback / Guest Mode: Fetch from Local Storage
+  // 2. Guest Mode: Fetch ONLY from Local Storage
   return loadFromLocal();
 };
 
@@ -104,29 +103,25 @@ export const saveProgress = async (rawData: any) => {
     if (!formatted) return;
 
     const key = `${formatted.type === 'movie' ? 'm' : 't'}${formatted.id}`;
-    
-    // Sanitize to ensure no undefined values reach Firebase
     const safeData = JSON.parse(JSON.stringify(formatted, (k, v) => v === undefined ? null : v));
 
-    // A. Always save to local storage as a backup (cache)
-    try {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        const current = stored ? JSON.parse(stored) : {};
-        current[key] = safeData;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-    } catch (e) {
-        console.error("Local save failed", e);
-    }
-
-    // B. If Logged In: Save to Firebase DB
     const user = await waitForAuth();
+
     if (user && db) {
+        // A. Logged In: Save to Firebase DB ONLY
         set(ref(db, `users/${user.uid}/progress/${key}`), safeData)
-        .then(() => {
-            console.log("Progress saved to Firebase DB");
-        })
         .catch(err => {
              console.error("Database save failed:", err.message);
         });
+    } else {
+        // B. Guest: Save to Local Storage ONLY
+        try {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            const current = stored ? JSON.parse(stored) : {};
+            current[key] = safeData;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+        } catch (e) {
+            console.error("Local save failed", e);
+        }
     }
 };
