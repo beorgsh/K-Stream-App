@@ -8,7 +8,6 @@ import { SavedRoom } from '../types';
 let app;
 let db: any;
 let auth: any;
-let dbAvailable = true; // Circuit breaker for rooms too
 
 try {
   app = initializeApp(FIREBASE_CONFIG);
@@ -58,10 +57,13 @@ export const registerRoomInLobby = async (
     backdrop_path: string | null;
   }
 ) => {
-  if (!db || !dbAvailable) return;
+  if (!db) return;
 
   const user = await waitForAuth();
-  if (!user) return;
+  if (!user) {
+      console.warn("Cannot register room: User not authenticated.");
+      return;
+  }
 
   const roomRef = ref(db, `rooms/${roomId}`);
   
@@ -84,22 +86,18 @@ export const registerRoomInLobby = async (
       await set(roomRef, sanitizeData(roomData));
       onDisconnect(roomRef).remove();
   } catch (error: any) {
-      // If it fails, just log once and disable DB usage to prevent crashes
-      if (error.code === 'PERMISSION_DENIED') {
-          console.warn("Room creation blocked by rules. Party will work via P2P only, but won't be listed in lobby.");
-          dbAvailable = false;
-      }
+      console.error("Failed to register room in DB:", error.message);
   }
 };
 
 export const removeRoomFromLobby = (roomId: string) => {
-  if (!db || !dbAvailable) return;
+  if (!db) return;
   const roomRef = ref(db, `rooms/${roomId}`);
   remove(roomRef).catch(() => {});
 };
 
 export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) => {
-  if (!db || !dbAvailable) {
+  if (!db) {
     callback([]);
     return () => {};
   }
@@ -108,7 +106,8 @@ export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) =
   let isCancelled = false;
 
   const init = async () => {
-      const user = await waitForAuth();
+      // Ensure we attempt to wait for auth, as rules likely depend on it
+      await waitForAuth();
       if (isCancelled) return;
 
       const roomsRef = ref(db, 'rooms');
@@ -124,13 +123,11 @@ export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) =
                 callback([]);
             }
         }, (error) => {
-            if (error.message.includes('permission_denied')) {
-                 console.warn("Room listing blocked by rules.");
-                 dbAvailable = false;
-            }
+            console.error("Room subscription error:", error.message);
             callback([]);
         });
       } catch (e) {
+          console.error("Subscription setup failed", e);
           callback([]);
       }
   };

@@ -4,7 +4,6 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { Media, StoredMediaData } from '../types';
 
 const STORAGE_KEY = 'vidFastProgress';
-let dbPermissionGranted = true; // Circuit breaker: If false, we stop hitting DB
 
 // Format raw player data to clean structure
 const formatData = (data: any): StoredMediaData | null => {
@@ -43,8 +42,8 @@ export const getContinueWatching = async (): Promise<Media[]> => {
     };
 
     checkAuth().then((user: any) => {
-        // Only try DB if user exists, DB exists, AND we haven't been blocked yet
-        if (user && db && dbPermissionGranted) {
+        // Always try DB if user exists and DB is initialized
+        if (user && db) {
           const dbRef = ref(db);
           get(child(dbRef, `users/${user.uid}/progress`))
             .then((snapshot) => {
@@ -73,18 +72,12 @@ export const getContinueWatching = async (): Promise<Media[]> => {
               }
             })
             .catch((err) => {
-              // Handle Permission Denied or 404 by switching to local storage permanently for this session
-              if (err.message && (err.message.includes('permission_denied') || err.message.includes('404'))) {
-                  console.warn("Firebase DB blocked/missing. Switching to Local Storage.");
-                  dbPermissionGranted = false; // Trip the circuit breaker
-                  loadFromLocal(resolve);
-              } else {
-                  console.error("DB Error:", err);
-                  resolve([]);
-              }
+              console.warn("DB Fetch failed, falling back to local storage:", err.message);
+              // Fallback to local storage for this read
+              loadFromLocal(resolve);
             });
         } else {
-           // Fallback immediately
+           // Guest or No DB Config -> Local Storage
            loadFromLocal(resolve);
         }
     });
@@ -126,9 +119,11 @@ export const saveProgress = async (rawData: any) => {
     if (!formatted) return;
 
     const key = `${formatted.type === 'movie' ? 'm' : 't'}${formatted.id}`;
+    
+    // Sanitize to ensure no undefined values reach Firebase
     const safeData = JSON.parse(JSON.stringify(formatted, (k, v) => v === undefined ? null : v));
 
-    // 1. ALWAYS Save to LocalStorage (Reliable Backup)
+    // 1. Save to LocalStorage (as cache/backup)
     try {
         const stored = localStorage.getItem(STORAGE_KEY);
         const current = stored ? JSON.parse(stored) : {};
@@ -138,15 +133,13 @@ export const saveProgress = async (rawData: any) => {
         console.error("Local save failed", e);
     }
 
-    // 2. Try DB if allowed
+    // 2. Save to Database (Primary)
     let user = auth?.currentUser;
-    if (user && db && dbPermissionGranted) {
+    if (user && db) {
         // @ts-ignore
         set(ref(db, `users/${user.uid}/progress/${key}`), safeData)
         .catch(err => {
-             if (err.message && (err.message.includes('permission_denied') || err.message.includes('404'))) {
-                  dbPermissionGranted = false; // Stop future tries
-             }
+             console.error("Database save failed:", err.message);
         });
     }
 };
