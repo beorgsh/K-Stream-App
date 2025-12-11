@@ -8,53 +8,35 @@ import { SavedRoom } from '../types';
 let app;
 let db: any;
 let auth: any;
+let dbAvailable = true; // Circuit breaker for rooms too
 
 try {
   app = initializeApp(FIREBASE_CONFIG);
   db = getDatabase(app);
   auth = getAuth(app);
 } catch (e) {
-  console.warn("Firebase not initialized. Check your constants.ts config.");
+  console.warn("Firebase config error.");
 }
 
 export { auth, db };
 
-// Helper to wait for auth to be ready
 const waitForAuth = (): Promise<any> => {
     return new Promise((resolve) => {
-        if (!auth) {
-            resolve(null); 
-            return;
-        }
-        // If currentUser is already populated, resolve immediately
-        if (auth.currentUser) {
-            resolve(auth.currentUser);
-            return;
-        }
-        
+        if (!auth) { resolve(null); return; }
+        if (auth.currentUser) { resolve(auth.currentUser); return; }
         let resolved = false;
-
         const unsubscribe = onAuthStateChanged(auth, (user) => {
             if (resolved) return;
             resolved = true;
             unsubscribe();
             resolve(user);
         });
-
-        // Safety timeout in case onAuthStateChanged hangs or network fails
         setTimeout(() => {
-            if (!resolved) {
-                resolved = true;
-                // unsubscribe might not be accessible if it hasn't returned yet, 
-                // but usually it's fine. We just resolve null.
-                console.warn("Auth check timed out, proceeding as guest/unauthenticated.");
-                resolve(auth?.currentUser || null);
-            }
-        }, 3000);
+            if (!resolved) { resolved = true; resolve(auth?.currentUser || null); }
+        }, 2000);
     });
 };
 
-// Ensure no undefined values are sent to Firebase (it rejects them)
 const sanitizeData = <T>(data: T): T => {
     return JSON.parse(JSON.stringify(data, (key, value) => {
         if (value === undefined) return null;
@@ -76,24 +58,19 @@ export const registerRoomInLobby = async (
     backdrop_path: string | null;
   }
 ) => {
-  if (!db) return;
+  if (!db || !dbAvailable) return;
 
-  // Ensure user is authenticated before writing to DB
   const user = await waitForAuth();
-  if (!user) {
-      console.error("Cannot register room: User not authenticated");
-      return;
-  }
+  if (!user) return;
 
   const roomRef = ref(db, `rooms/${roomId}`);
   
-  // Create room entry
   const roomData: SavedRoom = {
     id: roomId,
     name: roomName || `${hostName}'s Party`,
     hostName: hostName,
     timestamp: Date.now(),
-    users: 1, // Start with host
+    users: 1, 
     isPrivate: isPrivate,
     password: password || '', 
     media: {
@@ -105,24 +82,24 @@ export const registerRoomInLobby = async (
 
   try {
       await set(roomRef, sanitizeData(roomData));
-      // Auto-remove room when host disconnects (closes tab)
       onDisconnect(roomRef).remove();
   } catch (error: any) {
-      console.error("Failed to register room in DB:", error);
+      // If it fails, just log once and disable DB usage to prevent crashes
       if (error.code === 'PERMISSION_DENIED') {
-          console.error("FIREBASE RULES ERROR: You must allow writes to '/rooms'. Go to Firebase Console -> Realtime Database -> Rules and set '.write': 'auth != null' for 'rooms'.");
+          console.warn("Room creation blocked by rules. Party will work via P2P only, but won't be listed in lobby.");
+          dbAvailable = false;
       }
   }
 };
 
 export const removeRoomFromLobby = (roomId: string) => {
-  if (!db) return;
+  if (!db || !dbAvailable) return;
   const roomRef = ref(db, `rooms/${roomId}`);
-  remove(roomRef).catch(err => console.error("Error removing room:", err));
+  remove(roomRef).catch(() => {});
 };
 
 export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) => {
-  if (!db) {
+  if (!db || !dbAvailable) {
     callback([]);
     return () => {};
   }
@@ -131,44 +108,34 @@ export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) =
   let isCancelled = false;
 
   const init = async () => {
-      // Vital: Wait for auth before trying to read 'rooms' if rules require auth
       const user = await waitForAuth();
-      
       if (isCancelled) return;
 
-      // Even if no user, we try to fetch rooms (maybe rules are public)
       const roomsRef = ref(db, 'rooms');
       
-      // Attach listener
       try {
         unsubscribeFunc = onValue(roomsRef, (snapshot) => {
             const data = snapshot.val();
             if (data) {
-            const roomList = Object.values(data) as SavedRoom[];
-            // Sort by newest
-            roomList.sort((a, b) => b.timestamp - a.timestamp);
-            callback(roomList);
+                const roomList = Object.values(data) as SavedRoom[];
+                roomList.sort((a, b) => b.timestamp - a.timestamp);
+                callback(roomList);
             } else {
-            callback([]);
+                callback([]);
             }
         }, (error) => {
-            console.error("Error fetching rooms:", error.message);
             if (error.message.includes('permission_denied')) {
-                 console.error("FIREBASE RULES ERROR: You must allow reads to '/rooms'. Set '.read': true in Firebase Console -> Realtime Database -> Rules.");
-            }
-            if (error.message.includes('404')) {
-                 console.error("FIREBASE 404: Database URL not found. 1) Go to Firebase Console -> Realtime Database. 2) Create the database if missing. 3) Ensure constant.ts matches the URL displayed there.");
+                 console.warn("Room listing blocked by rules.");
+                 dbAvailable = false;
             }
             callback([]);
         });
       } catch (e) {
-          console.error("Subscription setup error", e);
+          callback([]);
       }
   };
 
   init();
-
-  // Return cleanup function
   return () => {
       isCancelled = true;
       if (unsubscribeFunc) unsubscribeFunc();
@@ -176,7 +143,5 @@ export const subscribeToActiveRooms = (callback: (rooms: SavedRoom[]) => void) =
 };
 
 export const logoutUser = async () => {
-    if (auth) {
-        await signOut(auth);
-    }
+    if (auth) await signOut(auth);
 };
