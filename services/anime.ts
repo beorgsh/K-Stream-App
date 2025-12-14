@@ -1,13 +1,12 @@
 import { Media, AnimeEpisode, AnimeStreamData, MediaDetails } from '../types';
 
 // List of HiAnime API instances
-// Prioritizing the one provided by user and known working mirrors
+// Prioritize user provided URL and known working mirrors
 const PROVIDERS = [
     "https://aniwatch-api-one-rose.vercel.app/api/v2/hianime",
     "https://hianime-api-chi.vercel.app/api/v2/hianime",
-    "https://aniwatch-api-v1-0.vercel.app/api/v2/hianime", 
     "https://api-aniwatch.onrender.com/api/v2/hianime",
-    "https://aniwatch-api-psi.vercel.app/api/v2/hianime"
+    "https://aniwatch-api-v1-0.vercel.app/api/v2/hianime"
 ];
 
 const fetchWithFallback = async (endpoint: string) => {
@@ -15,10 +14,12 @@ const fetchWithFallback = async (endpoint: string) => {
     for (const provider of PROVIDERS) {
         try {
             const url = `${provider}${endpoint}`;
-            const response = await fetch(url);
+            // 'no-referrer' helps bypass some CORS/hotlink protections on these APIs
+            const response = await fetch(url, { referrerPolicy: 'no-referrer' });
+            
             if (!response.ok) throw new Error(`Status ${response.status}`);
+            
             const data = await response.json();
-            // Basic validation to ensure we got a JSON body
             if (!data) throw new Error("Empty response");
             return data;
         } catch (e) {
@@ -29,19 +30,18 @@ const fetchWithFallback = async (endpoint: string) => {
     throw lastError || new Error("All providers failed");
 };
 
-// Convert AniWatch data to our Media interface
+// Convert API data to our Media interface
 const mapAnimeToMedia = (item: any): Media => ({
-    id: item.id || item.animeId || 'unknown', // Handle inconsistent ID naming
+    id: item.id || item.animeId || 'unknown',
     title: item.name || item.title || 'Unknown',
     name: item.name || item.title || 'Unknown',
     poster_path: item.poster,
-    backdrop_path: item.poster, // API doesn't always provide backdrop, use poster as fallback
+    backdrop_path: item.poster, // Fallback as anime API often lacks separate backdrop
     overview: item.description || '',
     vote_average: item.rank ? Math.max(0, 10 - (item.rank / 1000)) : (item.rating ? parseFloat(item.rating) : 0),
     media_type: 'anime',
     original_language: 'ja',
     release_date: item.releaseDate || item.date || null,
-    // Store episode counts if available for UI badges
     progress: item.episodes ? {
         watched: 0,
         duration: (item.episodes.sub || 0) + (item.episodes.dub || 0)
@@ -50,32 +50,33 @@ const mapAnimeToMedia = (item: any): Media => ({
 
 export const fetchAnimeHome = async (): Promise<{ spotlight: Media[], trending: Media[], latest: Media[] }> => {
     try {
-        const data = await fetchWithFallback('/home');
+        const response = await fetchWithFallback('/home');
         
-        if (!data.success) {
-            console.warn("Anime Home API returned success: false");
-            return { spotlight: [], trending: [], latest: [] };
+        // The API returns { status: 200, data: { ... } } OR { success: true, data: { ... } }
+        // We accept either format.
+        if (response.success === false && response.status !== 200) {
+             return { spotlight: [], trending: [], latest: [] };
         }
         
-        const d = data.data;
+        const data = response.data;
+        if (!data) return { spotlight: [], trending: [], latest: [] };
 
         return {
-            spotlight: (d?.spotlightAnimes || []).map(mapAnimeToMedia),
-            trending: (d?.trendingAnimes || []).map(mapAnimeToMedia),
-            latest: (d?.latestEpisodeAnimes || []).map(mapAnimeToMedia)
+            spotlight: (data.spotlightAnimes || []).map(mapAnimeToMedia),
+            trending: (data.trendingAnimes || []).map(mapAnimeToMedia),
+            latest: (data.latestEpisodeAnimes || []).map(mapAnimeToMedia)
         };
     } catch (e) {
-        console.error("Anime Home Error", e);
-        return { spotlight: [], trending: [], latest: [] };
+        console.error("Anime Home Fetch Error:", e);
+        throw e; // Re-throw to let the UI handle the error state
     }
 };
 
 export const searchAnime = async (query: string): Promise<Media[]> => {
     try {
-        const data = await fetchWithFallback(`/search?q=${encodeURIComponent(query)}&page=1`);
-        
-        if (!data.success) return [];
-        return (data.data?.animes || []).map(mapAnimeToMedia);
+        const response = await fetchWithFallback(`/search?q=${encodeURIComponent(query)}&page=1`);
+        if (!response.data?.animes) return [];
+        return response.data.animes.map(mapAnimeToMedia);
     } catch (e) {
         console.error("Anime Search Error", e);
         return [];
@@ -83,12 +84,10 @@ export const searchAnime = async (query: string): Promise<Media[]> => {
 }
 
 export const fetchAnimeDetails = async (id: string): Promise<MediaDetails> => {
-    const data = await fetchWithFallback(`/anime/${id}`);
+    const response = await fetchWithFallback(`/anime/${id}`);
     
-    if (!data.success) throw new Error("Failed to fetch anime details");
-    
-    const info = data.data?.anime?.info;
-    const moreInfo = data.data?.anime?.moreInfo;
+    const info = response.data?.anime?.info;
+    const moreInfo = response.data?.anime?.moreInfo;
     
     if (!info) throw new Error("Invalid anime details structure");
 
@@ -97,7 +96,7 @@ export const fetchAnimeDetails = async (id: string): Promise<MediaDetails> => {
         title: info.name,
         name: info.name,
         poster_path: info.poster,
-        backdrop_path: info.poster, // Fallback
+        backdrop_path: info.poster, 
         overview: info.description,
         vote_average: parseFloat(info.stats?.rating) || 0,
         media_type: 'anime',
@@ -106,18 +105,17 @@ export const fetchAnimeDetails = async (id: string): Promise<MediaDetails> => {
         genres: (moreInfo?.genres || []).map((g: string, i: number) => ({ id: i, name: g })),
         status: moreInfo?.status || 'Unknown',
         runtime: parseInt(moreInfo?.duration) || 24,
-        number_of_seasons: 1, // Usually flat list
+        number_of_seasons: 1, 
         credits: { cast: [] }, 
-        similar: { results: (data.data?.recommendedAnimes || []).map(mapAnimeToMedia) },
-        recommendations: { results: (data.data?.relatedAnimes || []).map(mapAnimeToMedia) }
+        similar: { results: (response.data?.recommendedAnimes || []).map(mapAnimeToMedia) },
+        recommendations: { results: (response.data?.relatedAnimes || []).map(mapAnimeToMedia) }
     };
 };
 
 export const fetchAnimeEpisodes = async (id: string): Promise<AnimeEpisode[]> => {
     try {
-        const data = await fetchWithFallback(`/anime/${id}/episodes`);
-        if (!data.success) return [];
-        return data.data?.episodes || [];
+        const response = await fetchWithFallback(`/anime/${id}/episodes`);
+        return response.data?.episodes || [];
     } catch (e) {
         console.error("Fetch Episodes Error", e);
         return [];
@@ -126,11 +124,8 @@ export const fetchAnimeEpisodes = async (id: string): Promise<AnimeEpisode[]> =>
 
 export const fetchAnimeSources = async (episodeId: string, server: string = 'vidstreaming', category: string = 'sub'): Promise<AnimeStreamData | null> => {
     try {
-        // endpoint: /episode/sources?animeEpisodeId={id}&server={server}&category={category}
-        // Note: server parameter might need to be serverId in some API versions, but standard is server name lowercase
-        const data = await fetchWithFallback(`/episode/sources?animeEpisodeId=${episodeId}&server=${server}&category=${category}`);
-        if (!data.success) return null;
-        return data.data;
+        const response = await fetchWithFallback(`/episode/sources?animeEpisodeId=${episodeId}&server=${server}&category=${category}`);
+        return response.data || null;
     } catch (e) {
         console.error("Source fetch error", e);
         return null;
@@ -139,9 +134,8 @@ export const fetchAnimeSources = async (episodeId: string, server: string = 'vid
 
 export const fetchAnimeServers = async (episodeId: string): Promise<{ sub: any[], dub: any[], raw: any[] }> => {
     try {
-        const data = await fetchWithFallback(`/episode/servers?animeEpisodeId=${episodeId}`);
-        if (!data.success) return { sub: [], dub: [], raw: [] };
-        return data.data || { sub: [], dub: [], raw: [] };
+        const response = await fetchWithFallback(`/episode/servers?animeEpisodeId=${episodeId}`);
+        return response.data || { sub: [], dub: [], raw: [] };
     } catch (e) {
         return { sub: [], dub: [], raw: [] };
     }

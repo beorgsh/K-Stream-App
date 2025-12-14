@@ -8,7 +8,7 @@ const fetchFromTMDB = async <T,>(endpoint: string, params: Record<string, string
     ...params,
   });
 
-  // Decode the pipe character for multi-language queries as URLSearchParams encodes it
+  // Decode pipe for multi-query params
   const queryString = queryParams.toString().replace(/%7C/g, '|');
 
   const response = await fetch(`${TMDB_BASE_URL}${endpoint}?${queryString}`);
@@ -20,7 +20,7 @@ const fetchFromTMDB = async <T,>(endpoint: string, params: Record<string, string
   return response.json();
 };
 
-// Generic Discover for Movies/TV with pagination
+// Generic Discover with strict KDrama filtering defaults
 export const discoverMedia = async (type: 'movie' | 'tv', page: number = 1, isGlobal: boolean = false, isAnime: boolean = false): Promise<Media[]> => {
   const endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
   const params: Record<string, string> = {
@@ -33,7 +33,7 @@ export const discoverMedia = async (type: 'movie' | 'tv', page: number = 1, isGl
       params.with_genres = '16'; // Animation
       params.with_original_language = 'ja';
   } else if (!isGlobal) {
-    // Strict Korean Content
+    // STRICT: Only return Korean content for default view
     params.with_original_language = 'ko';
   }
 
@@ -43,6 +43,7 @@ export const discoverMedia = async (type: 'movie' | 'tv', page: number = 1, isGl
 
 // Fetch Trending
 export const fetchTrending = async (type: 'movie' | 'tv', isGlobal: boolean = false): Promise<Media[]> => {
+  // Use discover endpoint for filtered trending to ensure we can apply language filter strictly
   const endpoint = isGlobal ? `/trending/${type}/week` : (type === 'movie' ? '/discover/movie' : '/discover/tv');
   
   const params: Record<string, string> = {};
@@ -60,12 +61,10 @@ export const fetchTrending = async (type: 'movie' | 'tv', isGlobal: boolean = fa
 // Fetch Top Rated
 export const fetchTopRated = async (type: 'movie' | 'tv', isGlobal: boolean = false): Promise<Media[]> => {
   const endpoint = type === 'movie' ? '/movie/top_rated' : '/tv/top_rated';
-  const params: Record<string, string> = {
-    page: '1'
-  };
+  const params: Record<string, string> = { page: '1' };
 
   if (!isGlobal) {
-    // Use discover for region filtering
+    // For local (Korean) view, use discover to filter by language, as standard top_rated endpoint doesn't filter by lang
     return discoverMedia(type, 1, false); 
   }
 
@@ -83,7 +82,7 @@ export const fetchMediaByLang = async (type: 'movie' | 'tv', lang: string): Prom
     page: '1',
   };
   
-  // If fetching Japanese TV (J-Dramas), exclude animation to separate from Anime section
+  // If fetching Japanese TV (J-Dramas), exclude animation
   if (lang === 'ja' && type === 'tv') {
       params.without_genres = '16'; 
   }
@@ -96,7 +95,7 @@ export const fetchMediaByLang = async (type: 'movie' | 'tv', lang: string): Prom
 export const fetchAnimeContent = async (): Promise<Media[]> => {
   const response = await fetchFromTMDB<TMDBResponse<Media>>('/discover/tv', {
     sort_by: 'popularity.desc',
-    with_genres: '16', // Animation Genre
+    with_genres: '16', 
     with_original_language: 'ja',
     'vote_count.gte': '5',
     page: '1'
@@ -104,7 +103,7 @@ export const fetchAnimeContent = async (): Promise<Media[]> => {
   return response.results.map(item => ({ ...item, media_type: 'tv' }));
 };
 
-// Legacy support wrappers
+// Wrappers
 export const fetchTrendingKDramas = () => fetchTrending('tv', false);
 export const fetchPopularKMovies = () => fetchTrending('movie', false);
 export const fetchTopRatedKDramas = () => fetchTopRated('tv', false);
@@ -114,11 +113,10 @@ export const fetchMediaDetails = async (type: 'movie' | 'tv', id: number): Promi
   const data = await fetchFromTMDB<MediaDetails>(`/${type}/${id}`, {
     append_to_response: 'credits,similar',
   });
-  // TMDB detail endpoints don't always return media_type, so we inject it manually to ensure consistency
   return { ...data, media_type: type };
 };
 
-// Get Season Details (for episodes)
+// Get Season Details
 export const fetchSeasonDetails = async (tvId: number, seasonNumber: number): Promise<{ episodes: Episode[] }> => {
   return fetchFromTMDB<{ episodes: Episode[] }>(`/tv/${tvId}/season/${seasonNumber}`);
 };
