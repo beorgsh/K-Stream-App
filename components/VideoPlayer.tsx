@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
-import { PLAYER_BASE_URL, THEME_COLOR } from '../constants';
+import { THEME_COLOR } from '../constants';
 import { saveProgress } from '../services/progress';
+import { Server, Wifi } from 'lucide-react';
 
 interface VideoPlayerProps {
   tmdbId: number;
@@ -23,6 +24,12 @@ export interface VideoPlayerRef {
   getStatus: () => void;
 }
 
+const SERVERS = [
+    { name: 'VidLink', url: 'https://vidlink.pro', type: 'standard' },
+    { name: 'VidSrc', url: 'https://vidsrc.to', type: 'embed' }, // Requires /embed/ path
+    { name: 'VidFast', url: 'https://vidfast.pro', type: 'standard' },
+];
+
 const VIDFAST_ORIGINS = [
     'https://vidfast.pro',
     'https://vidfast.in',
@@ -32,13 +39,15 @@ const VIDFAST_ORIGINS = [
     'https://vidfast.pm',
     'https://vidfast.xyz',
     'https://vidsrc.to',
-    'https://vidsrc.me'
+    'https://vidsrc.me',
+    'https://vidlink.pro'
 ];
 
 const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ 
   tmdbId, type, season = 1, episode = 1, mediaTitle, posterPath, backdropPath, onPlayerEvent, isHost = true, enableProgressSave = true
 }, ref) => {
   const [src, setSrc] = useState('');
+  const [currentServer, setCurrentServer] = useState(SERVERS[0]);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   
   // Track playback state locally for progress saving
@@ -89,12 +98,17 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
       lang: 'en'
     });
 
+    const baseUrl = currentServer.url;
+    const isEmbedPath = currentServer.type === 'embed';
+
     if (type === 'movie') {
-      url = `${PLAYER_BASE_URL}/movie/${tmdbId}?${params.toString()}`;
+      const path = isEmbedPath ? '/embed/movie' : '/movie';
+      url = `${baseUrl}${path}/${tmdbId}?${params.toString()}`;
     } else {
       params.append('autoNext', 'true');
       params.append('nextButton', 'true');
-      url = `${PLAYER_BASE_URL}/tv/${tmdbId}/${season}/${episode}?${params.toString()}`;
+      const path = isEmbedPath ? '/embed/tv' : '/tv';
+      url = `${baseUrl}${path}/${tmdbId}/${season}/${episode}?${params.toString()}`;
     }
     
     setSrc(url);
@@ -102,12 +116,14 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     // Reset refs on source change
     lastTimeRef.current = 0;
     durationRef.current = 0;
-  }, [tmdbId, type, season, episode]);
+  }, [tmdbId, type, season, episode, currentServer]);
 
   // --- Event Listeners (VidFast Communication) ---
   useEffect(() => {
     const handleMessage = ({ origin, data }: MessageEvent) => {
-        const isVidFast = VIDFAST_ORIGINS.some(o => origin.includes(o) || origin === o);
+        // Allow messages from known providers
+        const isAllowed = VIDFAST_ORIGINS.some(o => origin.includes(o.replace('https://', '')) || origin === o);
+        
         if (!data) return;
 
         // 1. Capture Metadata if available
@@ -125,8 +141,6 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
             if (duration) durationRef.current = duration;
 
             // --- PROGRESS SAVING (Fixed) ---
-            // We listen for 'timeupdate' (or any event with time) to save progress
-            // We rely on 'enableProgressSave' prop.
             if (enableProgressSave && currentTime > 0) {
                  lastTimeRef.current = currentTime;
                  const progressData = {
@@ -156,8 +170,6 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
                 } else if (event === 'seeked') {
                     onPlayerEvent?.({ action: 'seek', time: currentTime });
                 } else if (event === 'playerstatus' || event === 'timeupdate') {
-                    // For timeupdate, we only sync if needed, usually we don't broadcast every tick
-                    // But 'playerstatus' is explicitly requested by getStatus()
                     if (event === 'playerstatus') {
                         onPlayerEvent?.({ 
                             action: 'sync', 
@@ -175,21 +187,47 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   }, [isHost, onPlayerEvent, enableProgressSave, tmdbId, type, season, episode, mediaTitle, posterPath, backdropPath]);
 
   return (
-    <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl border border-slate-800 group">
-        <iframe
-            ref={iframeRef}
-            src={src}
-            title="Video Player"
-            className="absolute top-0 left-0 w-full h-full"
-            allowFullScreen
-            allow="autoplay; encrypted-media; picture-in-picture"
-            frameBorder="0"
-        />
-        
-        {/* Overlay for Guests: Blocks interactions so they strictly follow host */}
-        {!isHost && (
-            <div className="absolute inset-0 bg-transparent z-10" />
-        )}
+    <div className="space-y-3">
+        <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl border border-slate-800 group">
+            <iframe
+                ref={iframeRef}
+                src={src}
+                title="Video Player"
+                className="absolute top-0 left-0 w-full h-full z-10"
+                allowFullScreen
+                allow="autoplay; encrypted-media; picture-in-picture"
+                frameBorder="0"
+                referrerPolicy="origin"
+            />
+            
+            {/* Overlay for Guests: Blocks interactions so they strictly follow host */}
+            {!isHost && (
+                <div className="absolute inset-0 bg-transparent z-20" />
+            )}
+        </div>
+
+        {/* Server Switcher */}
+        <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5 backdrop-blur-sm">
+            <div className="flex items-center gap-2 px-2">
+                <Server className="h-4 w-4 text-indigo-400" />
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Stream Server</span>
+            </div>
+            <div className="flex gap-2">
+                {SERVERS.map((server) => (
+                    <button
+                        key={server.name}
+                        onClick={() => setCurrentServer(server)}
+                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                            currentServer.name === server.name 
+                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
+                                : 'bg-slate-800 text-gray-400 hover:bg-slate-700 hover:text-white'
+                        }`}
+                    >
+                        {server.name}
+                    </button>
+                ))}
+            </div>
+        </div>
     </div>
   );
 });
