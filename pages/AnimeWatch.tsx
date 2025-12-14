@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { fetchAnimeDetails, fetchAnimeEpisodes, fetchAnimeSources, fetchAnimeServers } from '../services/anime';
 import { MediaDetails, AnimeEpisode } from '../types';
 import AnimePlayer from '../components/AnimePlayer';
 import { WatchSkeleton } from '../components/Skeleton';
-import { AlertCircle, ChevronLeft, Info, List, Server, Settings, RefreshCw } from 'lucide-react';
+import { AlertCircle, ChevronLeft, Info, List, Server, Settings, RefreshCw, Volume2, Mic } from 'lucide-react';
+import { auth } from '../services/firebase';
 
 const AnimeWatch: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   
   const [details, setDetails] = useState<MediaDetails | null>(null);
   const [episodes, setEpisodes] = useState<AnimeEpisode[]>([]);
@@ -20,7 +22,7 @@ const AnimeWatch: React.FC = () => {
   
   // Server State
   const [servers, setServers] = useState<{ sub: any[], dub: any[], raw: any[] }>({ sub: [], dub: [], raw: [] });
-  const [selectedServer, setSelectedServer] = useState<string>('hd-1'); // Default to hd-1
+  const [selectedServerName, setSelectedServerName] = useState<string>('hd-1'); // Default to hd-1
   const [serverCategory, setServerCategory] = useState<'sub' | 'dub' | 'raw'>('sub');
   
   // UI State
@@ -28,43 +30,55 @@ const AnimeWatch: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadingSource, setLoadingSource] = useState(false);
   const [loadingServers, setLoadingServers] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Initial Load
+  // Auth Guard & Initial Load
   useEffect(() => {
-    if (!id) return;
-
-    const init = async () => {
-        setLoading(true);
-        try {
-            const [detailData, epsData] = await Promise.all([
-                fetchAnimeDetails(id),
-                fetchAnimeEpisodes(id)
-            ]);
-            setDetails(detailData);
-            setEpisodes(epsData);
-            
-            if (epsData.length > 0) {
-                // Auto select first episode
-                handleEpisodeSelect(epsData[0].episodeId);
-            }
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+        if (!user) {
+            navigate('/login');
+        } else {
+            setIsAuthenticated(true);
+            if (id) init(id);
         }
-    };
-    init();
-  }, [id]);
+    });
+    return () => unsubscribe();
+  }, [id, navigate]);
+
+  const init = async (animeId: string) => {
+    setLoading(true);
+    try {
+        const [detailData, epsData] = await Promise.all([
+            fetchAnimeDetails(animeId),
+            fetchAnimeEpisodes(animeId)
+        ]);
+        setDetails(detailData);
+        setEpisodes(epsData);
+        
+        if (epsData.length > 0) {
+            // Auto select first episode
+            handleEpisodeSelect(epsData[0].episodeId);
+        }
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setLoading(false);
+    }
+  };
 
   // When Episode, Server or Category changes, re-fetch source
-  // We use a separate effect to ensure manual server change triggers reload
   useEffect(() => {
-    if (currentEpisodeId && selectedServer) {
-        loadSource(currentEpisodeId, selectedServer, serverCategory);
+    if (currentEpisodeId && selectedServerName) {
+        loadSourceWithStateCheck(currentEpisodeId);
     }
-  }, [selectedServer, serverCategory]); 
-  // removed currentEpisodeId from dep array here to prevent double call when handleEpisodeSelect calls loadSource manually, 
-  // BUT we need it if we navigate. handleEpisodeSelect handles the initial load for a new episode.
+  }, [selectedServerName, serverCategory]); 
+
+  // Wrapper to get the server ID from state before calling API
+  const loadSourceWithStateCheck = (epId: string) => {
+      const currentCategoryList = servers[serverCategory] || [];
+      const serverObj = currentCategoryList.find((s: any) => s.serverName === selectedServerName);
+      loadSource(epId, selectedServerName, serverCategory, serverObj?.serverId);
+  };
 
   const handleEpisodeSelect = async (epId: string) => {
       setCurrentEpisodeId(epId);
@@ -80,12 +94,22 @@ const AnimeWatch: React.FC = () => {
           setLoadingServers(false);
 
           // 2. Decide which server/category to use
-          // Keep current category if available, else switch to sub
           let targetCategory = serverCategory;
-          if (!serverData[targetCategory] || serverData[targetCategory].length === 0) {
-              if (serverData.sub.length > 0) targetCategory = 'sub';
-              else if (serverData.dub.length > 0) targetCategory = 'dub';
-              else if (serverData.raw.length > 0) targetCategory = 'raw';
+
+          // Check if current category has servers, if not switch to priority order: sub > dub > raw
+          const hasSub = serverData.sub && serverData.sub.length > 0;
+          const hasDub = serverData.dub && serverData.dub.length > 0;
+          const hasRaw = serverData.raw && serverData.raw.length > 0;
+
+          if (targetCategory === 'sub' && !hasSub) {
+               if (hasDub) targetCategory = 'dub';
+               else if (hasRaw) targetCategory = 'raw';
+          } else if (targetCategory === 'dub' && !hasDub) {
+               if (hasSub) targetCategory = 'sub';
+               else if (hasRaw) targetCategory = 'raw';
+          } else if (targetCategory === 'raw' && !hasRaw) {
+               if (hasSub) targetCategory = 'sub';
+               else if (hasDub) targetCategory = 'dub';
           }
           
           if (targetCategory !== serverCategory) {
@@ -94,26 +118,32 @@ const AnimeWatch: React.FC = () => {
 
           // 3. Pick a server
           const availableServers = serverData[targetCategory] || [];
-          let targetServer = selectedServer;
-          const serverExists = availableServers.find((s: any) => s.serverName === targetServer);
+          let targetServerName = selectedServerName;
+          let targetServerId = undefined;
           
-          if (!serverExists && availableServers.length > 0) {
+          const serverExists = availableServers.find((s: any) => s.serverName === targetServerName);
+          
+          if (serverExists) {
+              targetServerId = serverExists.serverId;
+          } else if (availableServers.length > 0) {
               // Priority: hd-1 -> vidstreaming -> megacloud -> first available
               const hd1 = availableServers.find((s: any) => s.serverName === 'hd-1');
               const vidstreaming = availableServers.find((s: any) => s.serverName === 'vidstreaming');
               const megacloud = availableServers.find((s: any) => s.serverName === 'megacloud');
               
-              targetServer = hd1?.serverName || vidstreaming?.serverName || megacloud?.serverName || availableServers[0].serverName;
+              const selected = hd1 || vidstreaming || megacloud || availableServers[0];
+              targetServerName = selected.serverName;
+              targetServerId = selected.serverId;
           }
 
-          if (targetServer) {
-              setSelectedServer(targetServer);
-              // Manually call loadSource to ensure it runs immediately with new params
-              await loadSource(epId, targetServer, targetCategory);
+          if (targetServerName) {
+              setSelectedServerName(targetServerName);
+              // Manually call loadSource 
+              await loadSource(epId, targetServerName, targetCategory, targetServerId);
           } else {
-              // No servers found? Try a hail mary with 'hd-1' anyway
-              console.warn("No servers found, trying default hd-1");
-              setSelectedServer('hd-1');
+              // Fallback logic for when servers list might be empty but endpoint works
+              console.warn("No explicit servers found, trying default hd-1");
+              setSelectedServerName('hd-1');
               await loadSource(epId, 'hd-1', 'sub');
           }
 
@@ -124,10 +154,10 @@ const AnimeWatch: React.FC = () => {
       }
   };
 
-  const loadSource = async (epId: string, server: string, category: string) => {
+  const loadSource = async (epId: string, serverName: string, category: string, serverId?: string) => {
       setLoadingSource(true);
       try {
-          const data = await fetchAnimeSources(epId, server, category);
+          const data = await fetchAnimeSources(epId, serverName, category, serverId);
           if (data && data.sources && data.sources.length > 0) {
               setVideoSrc(data.sources[0].url);
               setHeaders(data.headers);
@@ -149,14 +179,17 @@ const AnimeWatch: React.FC = () => {
       if(currentEpisodeId) handleEpisodeSelect(currentEpisodeId);
   }
 
-  if (loading || !details) return <WatchSkeleton />;
+  if (!isAuthenticated || loading || !details) return <WatchSkeleton />;
 
   const currentEp = episodes.find(e => e.episodeId === currentEpisodeId);
   const title = details.title || details.name;
   
   // Available categories for this episode
-  const availableCategories = (['sub', 'dub', 'raw'] as const).filter(cat => servers[cat] && servers[cat].length > 0);
-  // Available servers for current category
+  const hasSub = servers.sub && servers.sub.length > 0;
+  const hasDub = servers.dub && servers.dub.length > 0;
+  const hasRaw = servers.raw && servers.raw.length > 0;
+  
+  const showAudioControls = hasSub || hasDub || hasRaw;
   const currentCategoryServers = servers[serverCategory] || [];
 
   return (
@@ -212,20 +245,46 @@ const AnimeWatch: React.FC = () => {
                 </div>
                 
                 {/* Audio/Sub Switcher */}
-                <div className="flex items-center gap-2 bg-black/40 p-1 rounded-lg border border-white/10">
-                    {availableCategories.length > 0 ? availableCategories.map((cat) => (
-                        <button
-                            key={cat}
-                            onClick={() => setServerCategory(cat)}
-                            className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${serverCategory === cat ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
-                        >
-                            {cat}
-                        </button>
-                    )) : (
-                         <div className="text-xs text-gray-500 px-2 flex items-center gap-1">
-                             {loadingServers ? 'Loading Info...' : 'No Info'}
-                         </div>
-                    )}
+                <div className="flex flex-col items-end gap-1">
+                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                        <Volume2 className="h-3 w-3" /> Audio / Sub
+                    </span>
+                    <div className="flex items-center gap-2 bg-black/40 p-1 rounded-lg border border-white/10">
+                        {loadingServers ? (
+                            <div className="text-xs text-gray-500 px-2 flex items-center gap-1">
+                                <RefreshCw className="h-3 w-3 animate-spin" /> Loading...
+                            </div>
+                        ) : showAudioControls ? (
+                            <>
+                                {hasSub && (
+                                    <button
+                                        onClick={() => setServerCategory('sub')}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all flex items-center gap-1 ${serverCategory === 'sub' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                    >
+                                        Sub
+                                    </button>
+                                )}
+                                {hasDub && (
+                                    <button
+                                        onClick={() => setServerCategory('dub')}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all flex items-center gap-1 ${serverCategory === 'dub' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                    >
+                                        <Mic className="h-3 w-3" /> Dub
+                                    </button>
+                                )}
+                                {hasRaw && (
+                                    <button
+                                        onClick={() => setServerCategory('raw')}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${serverCategory === 'raw' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                    >
+                                        Raw
+                                    </button>
+                                )}
+                            </>
+                        ) : (
+                            <div className="text-xs text-gray-500 px-2">No Options</div>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -239,8 +298,8 @@ const AnimeWatch: React.FC = () => {
                     {currentCategoryServers.map((s: any) => (
                         <button
                             key={s.serverName}
-                            onClick={() => setSelectedServer(s.serverName)}
-                            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${selectedServer === s.serverName ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-gray-300 hover:bg-slate-700'}`}
+                            onClick={() => setSelectedServerName(s.serverName)}
+                            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${selectedServerName === s.serverName ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-gray-300 hover:bg-slate-700'}`}
                         >
                             {s.serverName}
                         </button>
@@ -249,7 +308,7 @@ const AnimeWatch: React.FC = () => {
             ) : (
                 <div className="pt-2 border-t border-white/5 flex items-center justify-between">
                     <span className="text-xs text-gray-500">
-                        {loadingServers ? 'Scanning for servers...' : 'No servers found.'}
+                        {loadingServers ? 'Scanning for servers...' : 'Servers might be hidden.'}
                     </span>
                     {!loadingServers && (
                         <button onClick={reloadServers} className="flex items-center gap-1 text-xs text-indigo-400 hover:text-white">

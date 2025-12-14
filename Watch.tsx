@@ -116,7 +116,7 @@ const Watch: React.FC = () => {
         <div className={`xl:col-span-3 space-y-4`}>
           <VideoPlayer 
             ref={playerRef}
-            tmdbId={details.id} 
+            tmdbId={Number(details.id)} 
             type={details.media_type as 'movie' | 'tv'} 
             season={season}
             episode={episode}
@@ -184,7 +184,7 @@ const Watch: React.FC = () => {
                 {/* Episodes Tab */}
                 {isTV && activeTab === 'episodes' && details.seasons && (
                     <SeasonSelector 
-                        tvId={details.id}
+                        tvId={Number(details.id)}
                         seasons={details.seasons}
                         currentSeason={season}
                         currentEpisode={episode}

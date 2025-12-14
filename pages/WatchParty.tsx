@@ -581,7 +581,7 @@ const WatchParty: React.FC = () => {
                 <div className={`w-full h-full flex items-center bg-black ${!isFullscreen ? 'lg:max-w-6xl lg:mx-auto lg:px-4' : ''}`}>
                     <VideoPlayer 
                         ref={playerRef}
-                        tmdbId={details.id}
+                        tmdbId={Number(details.id)}
                         type={type}
                         season={season}
                         episode={episode}
@@ -650,7 +650,7 @@ const WatchParty: React.FC = () => {
                             <div className="h-full overflow-y-auto p-2">
                             {details.seasons && (
                                 <SeasonSelector 
-                                    tvId={details.id}
+                                    tvId={Number(details.id)}
                                     seasons={details.seasons}
                                     currentSeason={season}
                                     currentEpisode={episode}

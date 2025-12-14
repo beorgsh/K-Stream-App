@@ -97,12 +97,15 @@ const AnimePlayer = forwardRef<AnimePlayerRef, AnimePlayerProps>(({ src, poster,
                     if (Hls.isSupported()) {
                         if (art.hls) art.hls.destroy();
                         const hls = new Hls({
-                            // Pass custom headers if available (Note: Referer is unsafe and usually blocked by browser, but others work)
+                            // Pass custom headers if available
                             xhrSetup: function(xhr, url) {
                                 if (headers) {
                                     for (const [key, value] of Object.entries(headers)) {
-                                        if (key.toLowerCase() !== 'referer') {
+                                        try {
                                             xhr.setRequestHeader(key, value as string);
+                                        } catch (e) {
+                                            // Ignore safe header errors (Refused to set unsafe header)
+                                            console.warn(`Could not set header ${key}:`, e);
                                         }
                                     }
                                 }

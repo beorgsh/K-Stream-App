@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import { THEME_COLOR } from '../constants';
 import { saveProgress } from '../services/progress';
-import { Server, Wifi } from 'lucide-react';
+import { Server } from 'lucide-react';
 
 interface VideoPlayerProps {
   tmdbId: number;
@@ -11,11 +11,10 @@ interface VideoPlayerProps {
   mediaTitle?: string;
   posterPath?: string | null;
   backdropPath?: string | null;
-  // Callback when the player emits an event (only relevant for Host)
   onPlayerEvent?: (event: { action: 'play' | 'pause' | 'seek' | 'sync', time: number, playing?: boolean }) => void;
-  isHost?: boolean; // If false, we ignore internal events to prevent feedback loops
-  enableProgressSave?: boolean; // New Prop: defaults to true
-  isAnime?: boolean; // New Prop for Anime specific logic
+  isHost?: boolean;
+  enableProgressSave?: boolean;
+  isAnime?: boolean; // Kept for interface compatibility but ignored logic-wise
 }
 
 export interface VideoPlayerRef {
@@ -26,31 +25,13 @@ export interface VideoPlayerRef {
 }
 
 const SERVERS = [
-    { name: 'VidLink', url: 'https://vidlink.pro', type: 'standard' },
-    { name: 'VidSrc', url: 'https://vidsrc.to', type: 'embed' }, // Requires /embed/ path
-    { name: 'VidFast', url: 'https://vidfast.pro', type: 'standard' },
-    { name: 'VidSrc.cc', url: 'https://vidsrc.cc', type: 'embed-cc' }, // New Server
+    { name: 'VidSrc.cc', url: 'https://vidsrc.cc', type: 'vidsrc-cc' },
+    { name: 'VidSrc.to', url: 'https://vidsrc.to', type: 'vidsrc-to' },
+    { name: 'VidLink', url: 'https://vidlink.pro', type: 'vidlink' },
 ];
-
-const VIDFAST_ORIGINS = [
-    'https://vidfast.pro',
-    'https://vidfast.in',
-    'https://vidfast.io',
-    'https://vidfast.me',
-    'https://vidfast.net',
-    'https://vidfast.pm',
-    'https://vidfast.xyz',
-    'https://vidsrc.to',
-    'https://vidsrc.me',
-    'https://vidlink.pro',
-    'https://vidsrc.cc'
-];
-
-// Placeholder for Anime Server - User will fill this
-const ANIME_SERVER_URL = ""; 
 
 const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ 
-  tmdbId, type, season = 1, episode = 1, mediaTitle, posterPath, backdropPath, onPlayerEvent, isHost = true, enableProgressSave = true, isAnime = false
+  tmdbId, type, season = 1, episode = 1, mediaTitle, posterPath, backdropPath, onPlayerEvent, isHost = true, enableProgressSave = true
 }, ref) => {
   const [src, setSrc] = useState('');
   const [currentServer, setCurrentServer] = useState(SERVERS[0]);
@@ -59,11 +40,8 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   // Track playback state locally for progress saving
   const lastTimeRef = useRef(0);
   const durationRef = useRef(0);
-  
-  // Flag to differentiate between user actions and programmatic sync commands
   const isSyncing = useRef(false);
 
-  // --- External Control Methods (Called by Parent/PeerJS) ---
   useImperativeHandle(ref, () => ({
     play: (time) => {
         if (!iframeRef.current) return;
@@ -85,48 +63,33 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     },
     getStatus: () => {
         if (!iframeRef.current) return;
-        // getStatus is a read operation, doesn't need isSyncing lock
         iframeRef.current.contentWindow?.postMessage({ command: 'getStatus' }, '*');
     }
   }));
 
-  // --- Load Iframe ---
   useEffect(() => {
-    // If it is Anime, we use the dedicated placeholder and skip standard generation
-    if (isAnime) {
-        // Construct custom anime URL here if needed, otherwise use placeholder
-        // For now, setting it to the placeholder constant which defaults to empty string
-        setSrc(ANIME_SERVER_URL); 
-        return;
-    }
-
     let url = '';
     const params = new URLSearchParams({
       autoPlay: 'true', 
       theme: THEME_COLOR,
-      poster: 'true',
-      title: 'true',
-      hideServerControls: 'false',
     });
 
-    const baseUrl = currentServer.url;
-    const isEmbedPath = currentServer.type === 'embed';
-    const isEmbedCC = currentServer.type === 'embed-cc';
-
-    if (isEmbedCC) {
-        // Vidsrc.cc structure: https://vidsrc.cc/v2/embed/movie/{id} or /tv/{id}/{season}/{episode}
+    if (currentServer.type === 'vidsrc-cc') {
+        // VidSrc.cc structure: https://vidsrc.cc/v2/embed/movie/{id} or /tv/{id}/{season}/{episode}
         const basePath = type === 'movie' ? '/v2/embed/movie' : `/v2/embed/tv`;
         const resourcePath = type === 'movie' ? `/${tmdbId}` : `/${tmdbId}/${season}/${episode}`;
-        url = `${baseUrl}${basePath}${resourcePath}`; // vidsrc.cc often doesn't need params or uses different ones
+        url = `${currentServer.url}${basePath}${resourcePath}?autoPlay=true`; 
+    } else if (currentServer.type === 'vidsrc-to') {
+        // VidSrc.to structure
+        const path = type === 'movie' ? '/embed/movie' : '/embed/tv';
+        const resource = type === 'movie' ? `/${tmdbId}` : `/${tmdbId}/${season}/${episode}`;
+        url = `${currentServer.url}${path}${resource}`;
     } else {
+        // VidLink/Standard
         if (type === 'movie') {
-            const path = isEmbedPath ? '/embed/movie' : '/movie';
-            url = `${baseUrl}${path}/${tmdbId}?${params.toString()}`;
+            url = `${currentServer.url}/movie/${tmdbId}?${params.toString()}`;
         } else {
-            params.append('autoNext', 'true');
-            params.append('nextButton', 'true');
-            const path = isEmbedPath ? '/embed/tv' : '/tv';
-            url = `${baseUrl}${path}/${tmdbId}/${season}/${episode}?${params.toString()}`;
+            url = `${currentServer.url}/tv/${tmdbId}/${season}/${episode}?${params.toString()}`;
         }
     }
     
@@ -135,31 +98,20 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     // Reset refs on source change
     lastTimeRef.current = 0;
     durationRef.current = 0;
-  }, [tmdbId, type, season, episode, currentServer, isAnime]);
+  }, [tmdbId, type, season, episode, currentServer]);
 
-  // --- Event Listeners (VidFast/VidLink Communication) ---
+  // Handle messages from embeds (if supported)
   useEffect(() => {
     const handleMessage = ({ origin, data }: MessageEvent) => {
-        // Allow messages from known providers
-        const isAllowed = VIDFAST_ORIGINS.some(o => origin.includes(o.replace('https://', '')) || origin === o);
-        
         if (!data) return;
 
-        // 1. Capture Metadata if available
-        if (data.type === 'MEDIA_DATA') {
-            if (data.data?.progress?.duration) {
-                durationRef.current = data.data.progress.duration;
-            }
-        }
+        // Progress Saving Logic (Best Effort based on provider messages)
+        if (data.type === 'PLAYER_EVENT' || (data.data && data.data.currentTime)) {
+            const currentTime = data.data?.currentTime || data.currentTime;
+            const duration = data.data?.duration || data.duration;
 
-        // 2. Handle Player Events (Time Updates & Host Events)
-        if (data.type === 'PLAYER_EVENT') {
-            const { event, currentTime, duration, playing } = data.data;
-
-            // Update duration if provided
             if (duration) durationRef.current = duration;
 
-            // --- PROGRESS SAVING (Fixed) ---
             if (enableProgressSave && currentTime > 0) {
                  lastTimeRef.current = currentTime;
                  const progressData = {
@@ -177,33 +129,12 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
                  };
                  saveProgress(progressData);
             }
-
-            // --- HOST EVENTS (Watch Party) ---
-            if (isHost) {
-                if (isSyncing.current && event !== 'playerstatus') return;
-
-                if (event === 'play') {
-                    onPlayerEvent?.({ action: 'play', time: currentTime });
-                } else if (event === 'pause') {
-                    onPlayerEvent?.({ action: 'pause', time: currentTime });
-                } else if (event === 'seeked') {
-                    onPlayerEvent?.({ action: 'seek', time: currentTime });
-                } else if (event === 'playerstatus' || event === 'timeupdate') {
-                    if (event === 'playerstatus') {
-                        onPlayerEvent?.({ 
-                            action: 'sync', 
-                            time: currentTime, 
-                            playing: playing 
-                        });
-                    }
-                }
-            }
         }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [isHost, onPlayerEvent, enableProgressSave, tmdbId, type, season, episode, mediaTitle, posterPath, backdropPath]);
+  }, [enableProgressSave, tmdbId, type, season, episode, mediaTitle, posterPath, backdropPath]);
 
   return (
     <div className="space-y-3">
@@ -217,51 +148,39 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
                     allowFullScreen
                     allow="autoplay; encrypted-media; picture-in-picture"
                     frameBorder="0"
-                    referrerPolicy="origin"
                 />
             ) : (
-                <div className="absolute inset-0 flex items-center justify-center bg-slate-900 text-gray-500 flex-col gap-2">
-                    {isAnime ? (
-                        <>
-                            <span className="text-lg font-bold text-white">Dedicated Anime Server</span>
-                            <span className="text-xs">No Source Configured</span>
-                        </>
-                    ) : (
-                         <span className="text-sm">No source available</span>
-                    )}
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-900 text-gray-500">
+                    <span className="text-sm">No source available</span>
                 </div>
             )}
             
-            {/* Overlay for Guests: Blocks interactions so they strictly follow host */}
             {!isHost && (
                 <div className="absolute inset-0 bg-transparent z-20" />
             )}
         </div>
 
-        {/* Server Switcher - Only show if NOT Anime */}
-        {!isAnime && (
-            <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5 backdrop-blur-sm">
-                <div className="flex items-center gap-2 px-2">
-                    <Server className="h-4 w-4 text-indigo-400" />
-                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Stream Server</span>
-                </div>
-                <div className="flex gap-2">
-                    {SERVERS.map((server) => (
-                        <button
-                            key={server.name}
-                            onClick={() => setCurrentServer(server)}
-                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
-                                currentServer.name === server.name 
-                                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
-                                    : 'bg-slate-800 text-gray-400 hover:bg-slate-700 hover:text-white'
-                            }`}
-                        >
-                            {server.name}
-                        </button>
-                    ))}
-                </div>
+        <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5 backdrop-blur-sm">
+            <div className="flex items-center gap-2 px-2">
+                <Server className="h-4 w-4 text-indigo-400" />
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Server</span>
             </div>
-        )}
+            <div className="flex gap-2">
+                {SERVERS.map((server) => (
+                    <button
+                        key={server.name}
+                        onClick={() => setCurrentServer(server)}
+                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                            currentServer.name === server.name 
+                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
+                                : 'bg-slate-800 text-gray-400 hover:bg-slate-700 hover:text-white'
+                        }`}
+                    >
+                        {server.name}
+                    </button>
+                ))}
+            </div>
+        </div>
     </div>
   );
 });

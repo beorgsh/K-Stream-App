@@ -6,8 +6,6 @@ import {
     fetchTrendingKDramas, 
     fetchPopularKMovies, 
     fetchTopRatedKDramas,
-    fetchMediaByLang,
-    fetchAnimeContent
 } from '../services/api';
 import { getContinueWatching } from '../services/progress';
 import { auth } from '../services/firebase';
@@ -20,25 +18,18 @@ const Home: React.FC = () => {
   const [movies, setMovies] = useState<Media[]>([]);
   const [topRated, setTopRated] = useState<Media[]>([]);
   
-  // New Categories
-  const [cdramas, setCdramas] = useState<Media[]>([]);
-  const [tdramas, setTdramas] = useState<Media[]>([]);
-  const [jdramas, setJdramas] = useState<Media[]>([]);
-  const [anime, setAnime] = useState<Media[]>([]);
-
   const [continueWatching, setContinueWatching] = useState<Media[]>([]);
   const [loading, setLoading] = useState(true);
 
   // History Modal State
-  const [showHistoryModal, setShowHistoryModal] = useState(false); // Controls rendering
-  const [modalVisible, setModalVisible] = useState(false); // Controls opacity transition
-  
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false); 
   const [visibleHistory, setVisibleHistory] = useState<Media[]>([]);
   const [historyPage, setHistoryPage] = useState(1);
   const HISTORY_PAGE_SIZE = 10;
   const historyObserverTarget = useRef<HTMLDivElement>(null);
 
-  // Load General Content
+  // Load General Content (Strictly Korean)
   useEffect(() => {
     const loadContent = async () => {
       const minLoadTime = new Promise(resolve => setTimeout(resolve, 800));
@@ -48,28 +39,16 @@ const Home: React.FC = () => {
             trendingData, 
             moviesData, 
             topRatedData, 
-            cData,
-            tData,
-            jData,
-            aData
         ] = await Promise.all([
           fetchTrendingKDramas(),
           fetchPopularKMovies(),
           fetchTopRatedKDramas(),
-          fetchMediaByLang('tv', 'zh'), // Chinese (Mandarin)
-          fetchMediaByLang('tv', 'th'), // Thai
-          fetchMediaByLang('tv', 'ja'), // Japanese (Live Action)
-          fetchAnimeContent(),          // Anime
           minLoadTime
         ]);
         
         setTrending(trendingData);
         setMovies(moviesData);
         setTopRated(topRatedData);
-        setCdramas(cData);
-        setTdramas(tData);
-        setJdramas(jData);
-        setAnime(aData);
 
       } catch (error) {
         console.error("Error loading home data", error);
@@ -98,14 +77,12 @@ const Home: React.FC = () => {
       }
   }, [showHistoryModal, continueWatching, historyPage]);
 
-  // Intersection Observer for loading more
   useEffect(() => {
       if (!showHistoryModal) return;
 
       const observer = new IntersectionObserver((entries) => {
           if (entries[0].isIntersecting) {
              if (visibleHistory.length < continueWatching.length) {
-                 // Load more with a small delay for effect
                  setTimeout(() => {
                      setHistoryPage(prev => prev + 1);
                  }, 500);
@@ -120,17 +97,14 @@ const Home: React.FC = () => {
       return () => observer.disconnect();
   }, [showHistoryModal, visibleHistory.length, continueWatching.length]);
 
-  // Modal Handlers
   const openModal = () => {
       setHistoryPage(1);
       setShowHistoryModal(true);
-      // Small timeout to ensure DOM is rendered before applying opacity 1
       setTimeout(() => setModalVisible(true), 10);
   };
 
   const closeModal = () => {
       setModalVisible(false);
-      // Wait for transition to finish before unmounting
       setTimeout(() => setShowHistoryModal(false), 300);
   };
 
@@ -152,23 +126,17 @@ const Home: React.FC = () => {
         <MediaRow title="Trending K-Dramas" items={trending} />
         <MediaRow title="Popular Korean Movies" items={movies} />
         <MediaRow title="Top Rated Classics" items={topRated} />
-        
-        {/* New Categories */}
-        <MediaRow title="Trending C-Dramas" items={cdramas} />
-        <MediaRow title="Trending J-Dramas" items={jdramas} />
-        <MediaRow title="Trending Thai Dramas" items={tdramas} />
-        <MediaRow title="Popular Anime" items={anime} />
       </div>
 
       {/* History Modal */}
       {showHistoryModal && (
           <div 
             className={`fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md transition-opacity duration-300 ease-in-out ${modalVisible ? 'opacity-100' : 'opacity-0'}`}
-            onClick={closeModal} // Close on clicking backdrop
+            onClick={closeModal}
           >
               <div 
                 className={`bg-slate-900 border border-white/10 w-full max-w-5xl h-[80vh] rounded-2xl shadow-2xl flex flex-col relative overflow-hidden transform transition-all duration-300 ease-in-out ${modalVisible ? 'scale-100 translate-y-0' : 'scale-95 translate-y-8'}`}
-                onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside modal
+                onClick={(e) => e.stopPropagation()}
               >
                   <div className="p-6 border-b border-white/5 flex justify-between items-center bg-slate-900/50">
                       <div className="flex items-center gap-3">
@@ -193,7 +161,6 @@ const Home: React.FC = () => {
                           ))}
                       </div>
                       
-                      {/* Loading trigger element */}
                       {visibleHistory.length < continueWatching.length && (
                           <div ref={historyObserverTarget} className="flex justify-center py-8">
                                <Loader2 className="h-8 w-8 text-indigo-500 animate-spin" />

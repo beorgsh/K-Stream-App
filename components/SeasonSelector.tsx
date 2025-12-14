@@ -131,7 +131,8 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
               // Fallback logic for thumbnail
               let imageUrl = null;
               if (ep.still_path) {
-                imageUrl = `${IMAGE_BASE_URL}/w300${ep.still_path}`;
+                // Use larger w454 for better quality thumbnails like Anilist
+                imageUrl = `${IMAGE_BASE_URL}/w454_and_h254_bestv2${ep.still_path}`;
               } else if (showBackdrop) {
                 imageUrl = `${IMAGE_BASE_URL}/w300${showBackdrop}`;
               }
@@ -140,50 +141,50 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
                 <button
                   key={ep.id}
                   onClick={() => onSelect(selectedSeason, ep.episode_number)}
-                  className={`w-full text-left p-3 flex items-start gap-3 border-b border-white/5 hover:bg-white/5 transition-all duration-200 group ${
+                  className={`w-full text-left p-3 flex flex-col sm:flex-row items-start sm:items-center gap-3 border-b border-white/5 hover:bg-white/5 transition-all duration-200 group ${
                     isActive ? 'bg-indigo-600/10' : ''
                   }`}
                 >
-                   {/* Number */}
-                  <div className="text-lg font-light text-gray-500 w-6 flex-shrink-0 text-center pt-2 group-hover:text-white transition-colors">
-                    {ep.episode_number}
-                  </div>
-
-                  {/* Thumbnail - Compact Size */}
-                  <div className="flex-shrink-0 relative w-28 aspect-video rounded-md overflow-hidden bg-slate-800 shadow-sm mt-0.5">
+                  {/* Thumbnail Container */}
+                  <div className="flex-shrink-0 relative w-full sm:w-40 aspect-video rounded-lg overflow-hidden bg-slate-800 shadow-md">
                     {imageUrl ? (
                       <img 
                         src={imageUrl}
                         alt={ep.name}
                         loading="lazy"
-                        className={`w-full h-full object-cover transition-transform duration-500 ${isActive ? 'opacity-70 scale-105' : 'group-hover:scale-105'}`}
+                        className={`w-full h-full object-cover transition-transform duration-500 ${isActive ? 'opacity-80 scale-105' : 'group-hover:scale-105'}`}
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-gray-600 bg-slate-800/80">
-                        <ImageOff className="h-4 w-4" />
+                        <ImageOff className="h-6 w-6" />
                       </div>
                     )}
                     
                     {/* Active/Play Overlay */}
                     <div className={`absolute inset-0 flex items-center justify-center ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all duration-300 bg-black/40 backdrop-blur-[1px]`}>
-                         <Play className={`h-6 w-6 ${isActive ? 'text-indigo-400 fill-indigo-400' : 'text-white fill-white'}`} />
+                         <Play className={`h-8 w-8 ${isActive ? 'text-indigo-400 fill-indigo-400' : 'text-white fill-white'}`} />
+                    </div>
+                    
+                    {/* Episode Number Badge */}
+                    <div className="absolute bottom-1 right-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] font-bold text-white backdrop-blur-md">
+                        EP {ep.episode_number}
                     </div>
                   </div>
 
                   {/* Info */}
-                  <div className="flex-1 min-w-0 pt-0.5">
+                  <div className="flex-1 min-w-0 w-full">
                     <div className="flex justify-between items-start mb-1">
-                        <h4 className={`text-sm font-semibold leading-tight ${isActive ? 'text-indigo-300' : 'text-slate-200'} group-hover:text-white transition-colors line-clamp-1`}>
+                        <h4 className={`text-sm font-bold leading-tight ${isActive ? 'text-indigo-300' : 'text-slate-200'} group-hover:text-white transition-colors line-clamp-1`}>
                            {ep.name || `Episode ${ep.episode_number}`}
                         </h4>
                     </div>
                     
-                    <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed opacity-80 group-hover:opacity-100 transition-opacity">
+                    <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed opacity-80 group-hover:opacity-100 transition-opacity mb-2">
                       {ep.overview || "No description available."}
                     </p>
-                    <div className="mt-1">
-                        <span className="text-[10px] text-gray-600 font-mono">
-                            {ep.air_date ? ep.air_date.split('-')[0] : ''}
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-gray-500 font-mono bg-white/5 px-1.5 rounded">
+                            {ep.air_date ? ep.air_date : 'Unknown'}
                         </span>
                     </div>
                   </div>

@@ -1,17 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { Search, MonitorPlay, Menu, X, Globe, Users, User, LogOut, Edit2, Save, Loader2, Lock, Shield, Zap } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, MonitorPlay, Users, User, LogOut, Edit2, Globe, Clapperboard, ChevronDown, LogIn } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { auth, logoutUser, updateUserPassword } from '../services/firebase';
 import Toast from './Toast';
 
 const Navbar: React.FC = () => {
   const [isScrolled, setIsScrolled] = useState(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
   
-  // Profile Edit State
+  // Profile/Menu Dropdown State
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Profile Edit Modal State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false); // Controls animation
+  const [modalVisible, setModalVisible] = useState(false); 
   const [newDisplayName, setNewDisplayName] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   
@@ -25,11 +28,10 @@ const Navbar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const isGlobal = location.pathname.startsWith('/global');
-  const isAnime = location.pathname.startsWith('/anime');
-  
-  // Dynamic Search Path
-  const searchPath = isAnime ? '/anime/search' : (isGlobal ? '/global/search' : '/search');
+  // Determine Active Section
+  const activeSection = location.pathname.startsWith('/anime') ? 'anime' 
+                      : location.pathname.startsWith('/global') ? 'global' 
+                      : 'kdrama';
 
   useEffect(() => {
     const handleScroll = () => {
@@ -45,20 +47,30 @@ const Navbar: React.FC = () => {
         }
     });
 
+    // Close dropdown when clicking outside
+    const handleClickOutside = (event: MouseEvent) => {
+        if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+            setIsDropdownOpen(false);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+
     return () => {
         window.removeEventListener('scroll', handleScroll);
+        document.removeEventListener('mousedown', handleClickOutside);
         unsubscribe();
     }
   }, []);
 
   const handleLogout = async () => {
       await logoutUser();
+      setIsDropdownOpen(false);
       navigate('/login');
   };
 
-  // Modal Helpers
   const openProfileModal = () => {
       setIsProfileModalOpen(true);
+      setIsDropdownOpen(false);
       setIsChangingPassword(false);
       setCurrentPassword('');
       setNewPassword('');
@@ -78,17 +90,6 @@ const Navbar: React.FC = () => {
           setToast({ message: "Display name cannot be empty.", type: 'error' });
           return;
       }
-      
-      if (isChangingPassword) {
-          if (!currentPassword || !newPassword) {
-              setToast({ message: "Both current and new passwords are required.", type: 'error' });
-              return;
-          }
-          if (newPassword.length < 6) {
-              setToast({ message: "New password must be at least 6 characters.", type: 'error' });
-              return;
-          }
-      }
 
       setIsUpdating(true);
       try {
@@ -103,9 +104,7 @@ const Navbar: React.FC = () => {
           setTimeout(() => closeProfileModal(), 1000);
       } catch (error: any) {
           console.error("Update failed", error);
-          let msg = "Failed to update profile.";
-          if (error.code === 'auth/wrong-password') msg = "Incorrect current password.";
-          setToast({ message: msg, type: 'error' });
+          setToast({ message: "Failed to update profile.", type: 'error' });
       } finally {
           setIsUpdating(false);
       }
@@ -119,27 +118,23 @@ const Navbar: React.FC = () => {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   };
 
-  // Cycle Mode Logic: KO -> GL -> AN -> KO
-  const getNextModePath = () => {
-      if (isAnime) return '/'; // AN -> KO
-      if (isGlobal) return '/anime'; // GL -> AN
-      return '/global'; // KO -> GL
-  };
-
-  const getCurrentModeLabel = () => {
-      if (isAnime) return { label: 'Anime', icon: <Zap className="h-3.5 w-3.5" />, color: 'purple' };
-      if (isGlobal) return { label: 'Global', icon: <Globe className="h-3.5 w-3.5" />, color: 'blue' };
-      return { label: 'K-Stream', icon: <MonitorPlay className="h-3.5 w-3.5" />, color: 'indigo' };
-  };
-
-  const currentMode = getCurrentModeLabel();
-
   const navLinks = [
-    { name: 'Home', path: isAnime ? '/anime' : (isGlobal ? '/global' : '/') },
-    { name: 'Movies', path: isGlobal ? '/global/movies' : '/movies', hidden: isAnime },
-    { name: 'TV Shows', path: isGlobal ? '/global/tv' : '/tv', hidden: isAnime },
-    { name: 'Watch Party', path: '/rooms' },
+    { name: 'Movies', path: '/movies' },
+    { name: 'TV Shows', path: '/tv' },
+    { name: 'Rooms', path: '/rooms', icon: Users },
   ];
+
+  const sections = [
+      { id: 'kdrama', label: 'K-Drama', path: '/' },
+      { id: 'global', label: 'Global', path: '/global' },
+      { id: 'anime', label: 'Anime', path: '/anime' },
+  ];
+
+  const getBrandTitle = () => {
+      if (activeSection === 'anime') return 'Anime';
+      if (activeSection === 'global') return 'Global';
+      return 'K-Stream';
+  };
 
   return (
     <>
@@ -148,183 +143,247 @@ const Navbar: React.FC = () => {
     <nav
       className={`fixed top-0 w-full z-50 transition-all duration-300 border-b ${
         isScrolled 
-          ? 'bg-slate-950/90 backdrop-blur-md shadow-lg border-white/5' 
+          ? 'bg-slate-950/95 backdrop-blur-xl shadow-lg border-white/5' 
           : 'bg-transparent border-transparent'
       }`}
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          <div className="flex items-center">
-            <Link to={isAnime ? "/anime" : (isGlobal ? "/global" : "/")} className="flex items-center space-x-2 group">
-              {isAnime ? (
-                 <Zap className="h-8 w-8 text-purple-500 group-hover:text-purple-400 transition-colors" />
-              ) : isGlobal ? (
-                <Globe className="h-8 w-8 text-blue-500 group-hover:text-blue-400 transition-colors" />
-              ) : (
-                <MonitorPlay className="h-8 w-8 text-indigo-500 group-hover:text-indigo-400 transition-colors" />
-              )}
-              <span className={`text-xl font-bold tracking-tight ${isAnime ? 'text-purple-100' : (isGlobal ? 'text-blue-100' : 'text-white')}`}>
-                {isAnime ? 'Anime Stream' : (isGlobal ? 'Global Stream' : 'K-Stream')}
+      <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16 gap-4">
+          
+          {/* LEFT: Logo & Section Switcher */}
+          <div className="flex items-center gap-6 md:gap-8">
+            <Link to="/" className="flex items-center gap-2 group flex-shrink-0">
+              <MonitorPlay className="h-7 w-7 text-indigo-500 group-hover:text-indigo-400 transition-colors" />
+              <span className="text-lg md:text-xl font-bold tracking-tight text-white group-hover:text-gray-200 transition-colors">
+                {getBrandTitle()}
               </span>
             </Link>
-            <div className="hidden md:block ml-10">
-              <div className="flex items-baseline space-x-4">
-                {navLinks.filter(l => !l.hidden).map((link) => (
-                  <Link
-                    key={link.name}
-                    to={link.path}
-                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-white/5 ${
-                        link.path === '/rooms' ? 'text-indigo-400 hover:text-indigo-300' : 'text-gray-300 hover:text-white'
-                    }`}
-                  >
-                    {link.path === '/rooms' && <Users className="inline-block w-4 h-4 mr-1.5 -mt-0.5" />}
-                    {link.name}
-                  </Link>
+
+            {/* Desktop Section Switcher */}
+            <div className="hidden md:flex items-center bg-white/5 rounded-full p-1 border border-white/5">
+                {sections.map((section) => (
+                    <Link
+                        key={section.id}
+                        to={section.path}
+                        className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+                            activeSection === section.id 
+                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' 
+                                : 'text-gray-400 hover:text-white hover:bg-white/5'
+                        }`}
+                    >
+                        {section.label}
+                    </Link>
                 ))}
-              </div>
             </div>
           </div>
-          
-          <div className="hidden md:flex items-center space-x-4">
-            {/* Search Icon Link */}
-            <Link 
-                to={searchPath}
-                className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-full transition-colors"
-                aria-label="Search"
-            >
+
+          {/* RIGHT: Search, Links, Auth */}
+          <div className="flex items-center gap-2 sm:gap-4">
+             
+             {/* Mobile Section Switcher (Compact) */}
+             <div className="md:hidden flex items-center bg-white/5 rounded-full p-1 mr-2">
+                 {sections.map((section) => (
+                    <Link
+                        key={section.id}
+                        to={section.path}
+                        className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${
+                            activeSection === section.id 
+                                ? 'bg-indigo-600 text-white' 
+                                : 'text-gray-400'
+                        }`}
+                    >
+                        {section.label}
+                    </Link>
+                ))}
+             </div>
+
+             <Link 
+                to={activeSection === 'anime' ? "/anime/search" : "/search"}
+                className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+             >
                 <Search className="h-5 w-5" />
-            </Link>
+             </Link>
 
-            {/* Mode Toggle - Desktop (3-way) */}
-            <Link 
-              to={getNextModePath()}
-              className={`p-2 rounded-full transition-all duration-300 flex items-center space-x-2 px-4 py-1.5 text-xs font-bold uppercase tracking-wider border backdrop-blur-md ${
-                isAnime
-                 ? 'bg-purple-900/20 border-purple-500/30 text-purple-200 hover:bg-purple-900/40 hover:border-purple-400/50'
-                 : isGlobal 
-                    ? 'bg-blue-900/20 border-blue-500/30 text-blue-200 hover:bg-blue-900/40 hover:border-blue-400/50' 
-                    : 'bg-indigo-900/20 border-indigo-500/30 text-indigo-200 hover:bg-indigo-900/40 hover:border-indigo-400/50'
-              }`}
-            >
-              {currentMode.icon}
-              <span>{currentMode.label}</span>
-            </Link>
+             {/* Desktop Navigation Links */}
+             <div className="hidden md:flex items-center gap-1">
+                {navLinks.map(link => (
+                    <Link 
+                        key={link.name}
+                        to={link.path}
+                        className="px-3 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                    >
+                        {link.name}
+                    </Link>
+                ))}
+             </div>
 
-            {/* Auth Button */}
-            {user ? (
-                <div className="flex items-center gap-2 group relative h-full py-4">
-                    <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-sm font-bold border border-white/20 cursor-pointer">
-                        {getInitials(user.displayName)}
-                    </div>
-                    <div className="absolute right-0 top-full pt-2 w-40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto">
-                        <div className="bg-slate-900 border border-white/10 rounded-lg shadow-xl overflow-hidden">
-                            <div className="px-4 py-3 border-b border-white/5">
-                                <p className="text-xs text-gray-400">Signed in as</p>
-                                <p className="text-sm font-bold text-white truncate">{user.displayName || 'User'}</p>
-                            </div>
-                            <button onClick={openProfileModal} className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white w-full text-left transition-colors">
-                                <Edit2 className="h-4 w-4" /> Edit Profile
-                            </button>
-                            <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-white/5 w-full text-left transition-colors">
-                                <LogOut className="h-4 w-4" /> Sign Out
-                            </button>
+             {/* Divider */}
+             <div className="hidden md:block w-px h-6 bg-white/10 mx-1"></div>
+
+             {/* Auth / Profile Dropdown */}
+             <div className="relative" ref={dropdownRef}>
+                 <button 
+                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                    className="flex items-center gap-2 focus:outline-none group"
+                 >
+                     {user ? (
+                        <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-sm font-bold border border-white/20 group-hover:border-indigo-400 transition-colors shadow-lg shadow-indigo-600/20">
+                            {getInitials(user.displayName)}
                         </div>
-                    </div>
-                </div>
-            ) : (
-                <Link to="/login" className="flex items-center gap-2 text-sm font-medium text-gray-300 hover:text-white transition-colors">
-                    <User className="h-4 w-4" />
-                    Login
-                </Link>
-            )}
-          </div>
+                     ) : (
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all">
+                             <User className="h-4 w-4 text-gray-300" />
+                             <span className="text-xs font-bold text-gray-300 hidden sm:block">Sign In</span>
+                             <ChevronDown className="h-3 w-3 text-gray-500" />
+                        </div>
+                     )}
+                 </button>
 
-          <div className="md:hidden flex items-center gap-2">
-            <Link 
-                to={searchPath}
-                className="p-2 text-gray-300 hover:text-white"
-                aria-label="Search"
-            >
-                <Search className="h-5 w-5" />
-            </Link>
+                 {/* Dropdown Menu */}
+                 {isDropdownOpen && (
+                     <div className="absolute right-0 top-full mt-3 w-64 bg-slate-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-fade-in origin-top-right z-50">
+                         {/* User Header */}
+                         {user ? (
+                            <div className="px-4 py-4 border-b border-white/5 bg-white/5">
+                                <p className="text-xs text-indigo-400 font-bold uppercase tracking-wider mb-1">Signed in as</p>
+                                <p className="text-sm font-bold text-white truncate">{user.displayName || 'User'}</p>
+                                <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                            </div>
+                         ) : (
+                            <div className="p-4 border-b border-white/5 bg-indigo-600/10">
+                                <p className="text-sm text-gray-300 mb-3">Join K-Stream to track your progress and host parties.</p>
+                                <Link 
+                                    to="/login"
+                                    onClick={() => setIsDropdownOpen(false)}
+                                    className="flex items-center justify-center gap-2 w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-lg transition-colors"
+                                >
+                                    <LogIn className="h-4 w-4" /> Log In / Sign Up
+                                </Link>
+                            </div>
+                         )}
 
-            {/* Mode Toggle - Mobile */}
-            <Link 
-                to={getNextModePath()}
-                className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg border backdrop-blur-sm transition-all duration-300 ${
-                    isAnime
-                     ? 'border-purple-500/30 text-purple-200 bg-purple-500/10'
-                     : isGlobal 
-                        ? 'border-blue-500/30 text-blue-200 bg-blue-500/10' 
-                        : 'border-indigo-500/30 text-indigo-200 bg-indigo-500/10'
-                }`}
-            >
-                {isAnime ? 'AN' : (isGlobal ? 'GL' : 'KO')}
-            </Link>
-            
-            <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="text-gray-300 hover:text-white p-2"
-            >
-              {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-            </button>
+                         {/* Mobile Navigation Links inside Dropdown */}
+                         <div className="md:hidden py-2 border-b border-white/5">
+                             <p className="px-4 py-2 text-[10px] uppercase font-bold text-gray-500 tracking-wider">Browse</p>
+                             {navLinks.map(link => (
+                                 <Link 
+                                    key={link.name}
+                                    to={link.path} 
+                                    onClick={() => setIsDropdownOpen(false)}
+                                    className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white transition-colors"
+                                 >
+                                     {link.icon ? <link.icon className="h-4 w-4" /> : <Clapperboard className="h-4 w-4" />}
+                                     {link.name}
+                                 </Link>
+                             ))}
+                         </div>
 
-            {user && (
-                 <div onClick={openProfileModal} className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold border border-white/20 ml-1">
-                    {getInitials(user.displayName)}
-                 </div>
-             )}
+                         {/* Actions */}
+                         <div className="py-2">
+                             {user && (
+                                 <button 
+                                    onClick={openProfileModal}
+                                    className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white text-left transition-colors"
+                                 >
+                                     <Edit2 className="h-4 w-4" /> Edit Profile
+                                 </button>
+                             )}
+                             
+                             {user && (
+                                <button 
+                                    onClick={handleLogout}
+                                    className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 text-left transition-colors"
+                                >
+                                    <LogOut className="h-4 w-4" /> Sign Out
+                                </button>
+                             )}
+                         </div>
+                     </div>
+                 )}
+             </div>
           </div>
         </div>
       </div>
-
-      {/* Mobile Menu */}
-      {isMobileMenuOpen && (
-        <div className="md:hidden bg-slate-950/95 backdrop-blur-xl border-t border-white/10 animate-fade-in shadow-2xl">
-          <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
-            {navLinks.filter(l => !l.hidden).map((link) => (
-              <Link
-                key={link.name}
-                to={link.path}
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="text-gray-300 hover:text-white hover:bg-white/5 block px-3 py-3 rounded-md text-base font-medium flex items-center gap-2"
-              >
-                {link.name}
-              </Link>
-            ))}
-            
-            <div className="border-t border-white/10 my-2 pt-2">
-                {!user ? (
-                    <Link
-                        to="/login"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className="text-gray-300 hover:text-white hover:bg-white/5 block px-3 py-3 rounded-md text-base font-medium flex items-center gap-2"
-                    >
-                        <User className="h-4 w-4" /> Login / Sign Up
-                    </Link>
-                ) : (
-                    <>
-                     <button
-                        onClick={() => { openProfileModal(); setIsMobileMenuOpen(false); }}
-                        className="text-gray-300 hover:text-white hover:bg-white/5 block px-3 py-3 rounded-md text-base font-medium flex items-center gap-2 w-full text-left"
-                     >
-                        <Edit2 className="h-4 w-4" /> Edit Profile
-                     </button>
-                     <button
-                        onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }}
-                        className="text-red-400 hover:text-red-300 hover:bg-white/5 block px-3 py-3 rounded-md text-base font-medium flex items-center gap-2 w-full text-left"
-                    >
-                        <LogOut className="h-4 w-4" /> Sign Out
-                    </button>
-                    </>
-                )}
-            </div>
-
-          </div>
-        </div>
-      )}
     </nav>
-    {/* Profile Modal code... (kept as is) */}
+    
+    {/* Profile Edit Modal */}
+    {isProfileModalOpen && (
+       <div 
+         className={`fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm transition-opacity duration-300 ${modalVisible ? 'opacity-100' : 'opacity-0'}`}
+         onClick={closeProfileModal}
+       >
+          <div 
+             className={`bg-slate-900 border border-white/10 w-full max-w-md rounded-2xl shadow-2xl p-6 transform transition-all duration-300 ${modalVisible ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'}`}
+             onClick={(e) => e.stopPropagation()}
+          >
+             <div className="flex justify-between items-center mb-6">
+                 <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                     <Edit2 className="h-5 w-5 text-indigo-400" /> Edit Profile
+                 </h2>
+                 <button onClick={closeProfileModal} className="text-gray-400 hover:text-white">
+                     {/* Using a standard X icon for closing */}
+                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 18 18"/></svg>
+                 </button>
+             </div>
+             
+             <form onSubmit={handleUpdateProfile} className="space-y-4">
+                 <div>
+                     <label className="block text-sm text-gray-400 mb-1">Display Name</label>
+                     <input 
+                        type="text" 
+                        value={newDisplayName}
+                        onChange={(e) => setNewDisplayName(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                        placeholder="Your Name"
+                     />
+                 </div>
+
+                 <div className="pt-2 border-t border-white/5">
+                     <button 
+                        type="button"
+                        onClick={() => setIsChangingPassword(!isChangingPassword)}
+                        className="text-sm text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 mb-3"
+                     >
+                         {isChangingPassword ? 'Cancel Password Change' : 'Change Password'}
+                     </button>
+                     
+                     {isChangingPassword && (
+                         <div className="space-y-3 animate-fade-in">
+                             <div>
+                                 <label className="block text-sm text-gray-400 mb-1">Current Password</label>
+                                 <input 
+                                    type="password" 
+                                    value={currentPassword}
+                                    onChange={(e) => setCurrentPassword(e.target.value)}
+                                    className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                                    placeholder="Verify current password"
+                                 />
+                             </div>
+                             <div>
+                                 <label className="block text-sm text-gray-400 mb-1">New Password</label>
+                                 <input 
+                                    type="password" 
+                                    value={newPassword}
+                                    onChange={(e) => setNewPassword(e.target.value)}
+                                    className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                                    placeholder="Min 6 characters"
+                                 />
+                             </div>
+                         </div>
+                     )}
+                 </div>
+
+                 <button 
+                    type="submit" 
+                    disabled={isUpdating}
+                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold shadow-lg shadow-indigo-600/20 transition-all active:scale-95 disabled:opacity-50 mt-2"
+                 >
+                    {isUpdating ? 'Updating...' : 'Save Changes'}
+                 </button>
+             </form>
+          </div>
+       </div>
+    )}
     </>
   );
 };

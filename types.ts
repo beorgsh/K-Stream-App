@@ -136,9 +136,7 @@ export interface AnimeSubtitle {
 }
 
 export interface AnimeStreamData {
-    headers: {
-        Referer: string;
-    };
+    headers: Record<string, string>;
     sources: AnimeStreamSource[];
     subtitles?: AnimeSubtitle[];
     tracks?: {

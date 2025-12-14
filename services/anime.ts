@@ -162,27 +162,46 @@ export const fetchAnimeServers = async (episodeId: string): Promise<{ sub: any[]
     return { sub: [], dub: [], raw: [] };
 }
 
-export const fetchAnimeSources = async (episodeId: string, server: string, category: string): Promise<AnimeStreamData | null> => {
-    // Ensure server/type defaults are set if missing
-    const srv = server || 'hd-1';
+// Updated signature to accept serverName and serverId
+export const fetchAnimeSources = async (episodeId: string, serverName: string, category: string, serverId?: string): Promise<AnimeStreamData | null> => {
     const cat = category || 'sub';
-
-    const data = await fetchJson(`/stream?id=${episodeId}&server=${srv}&type=${cat}`);
     
-    if (!data.success || !data.results?.streamingLink) return null;
-
-    let links = data.results.streamingLink;
-    // Check if links is an array, if not, wrap it
-    if (!Array.isArray(links)) {
-        links = [links];
+    const tryFetch = async (srv: string) => {
+        const data = await fetchJson(`/stream?id=${episodeId}&server=${srv}&type=${cat}`);
+        if (data.success && data.results?.streamingLink) {
+            let links = data.results.streamingLink;
+            if (!Array.isArray(links)) links = [links];
+            const streamData = links.find((l: any) => l.link?.file);
+            if (streamData) return { data, streamData };
+        }
+        return null;
     }
 
-    // Use the first available link
-    const streamData = links.find((l: any) => l.link?.file);
-    if (!streamData) return null;
+    // 1. Try with Server Name (e.g., 'hd-1')
+    let result = await tryFetch(serverName || 'hd-1');
+
+    // 2. Try with Server ID if available
+    if (!result && serverId) {
+        console.warn(`Server name ${serverName} failed, trying ID ${serverId}`);
+        result = await tryFetch(serverId);
+    }
+
+    // 3. Fallback: Try 'vidstreaming' as it's often the default
+    if (!result && serverName !== 'vidstreaming') {
+         console.warn("Retrying with vidstreaming fallback");
+         result = await tryFetch('vidstreaming');
+    }
+
+    if (!result) return null;
+
+    const { streamData } = result;
 
     return {
-        headers: { Referer: 'https://hianime.to' }, 
+        headers: { 
+            'Referer': 'https://hianime.to/',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36',
+            ...streamData.headers // Merge any headers from API response
+        }, 
         sources: [{
             url: streamData.link.file,
             type: 'hls',
