@@ -33,8 +33,8 @@ export const discoverMedia = async (type: 'movie' | 'tv', page: number = 1, isGl
       params.with_genres = '16'; // Animation
       params.with_original_language = 'ja';
   } else if (!isGlobal) {
-    // Mix of Korean, Chinese, Thai, Japanese (Live Action implied by lack of isAnime, but we include all here)
-    params.with_original_language = 'ko|zh|cn|th|ja';
+    // Strict Korean Content
+    params.with_original_language = 'ko';
   }
 
   const response = await fetchFromTMDB<TMDBResponse<Media>>(endpoint, params);
@@ -48,7 +48,7 @@ export const fetchTrending = async (type: 'movie' | 'tv', isGlobal: boolean = fa
   const params: Record<string, string> = {};
   
   if (!isGlobal) {
-    params.with_original_language = 'ko|zh|cn|th|ja';
+    params.with_original_language = 'ko';
     params.sort_by = 'popularity.desc';
     params['vote_count.gte'] = '50';
   }
@@ -133,9 +133,8 @@ export const searchContent = async (query: string, isGlobal: boolean = false): P
   let results = response.results.filter(item => item.media_type === 'tv' || item.media_type === 'movie');
 
   if (!isGlobal) {
-    // Include Korean, Chinese, Thai, and Japanese content
-    const asianLangs = ['ko', 'zh', 'cn', 'th', 'ja'];
-    results = results.filter((item) => asianLangs.includes(item.original_language));
+    // Only Korean for default search
+    results = results.filter((item) => item.original_language === 'ko');
   }
   
   return results;
