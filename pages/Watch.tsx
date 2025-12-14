@@ -105,6 +105,9 @@ const Watch: React.FC = () => {
   const isTV = details.media_type === 'tv';
   const recommendations = details.similar?.results || details.recommendations?.results || [];
 
+  // Determine if content is Anime (Genre ID 16 + Language 'ja')
+  const isAnime = details.genres?.some(g => g.id === 16) && details.original_language === 'ja';
+
   return (
     <div className="min-h-screen bg-slate-950 pt-20 pb-10 px-4 sm:px-6 lg:px-8 animate-fade-in">
       
@@ -121,6 +124,7 @@ const Watch: React.FC = () => {
             mediaTitle={details.title || details.name}
             posterPath={details.poster_path}
             backdropPath={details.backdrop_path}
+            isAnime={isAnime}
           />
           
           {/* Simple Title Bar below player */}

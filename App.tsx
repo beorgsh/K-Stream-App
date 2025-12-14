@@ -3,7 +3,9 @@ import { HashRouter, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import GlobalHome from './pages/GlobalHome';
+import AnimeHome from './pages/AnimeHome';
 import Watch from './pages/Watch';
+import AnimeWatch from './pages/AnimeWatch';
 import WatchParty from './pages/WatchParty';
 import SearchPage from './pages/Search';
 import Category from './pages/Category';
@@ -37,7 +39,12 @@ const App: React.FC = () => {
             <Route path="/" element={<LayoutWithNavbar><Home /></LayoutWithNavbar>} />
             <Route path="/movies" element={<LayoutWithNavbar><Category type="movie" /></LayoutWithNavbar>} />
             <Route path="/tv" element={<LayoutWithNavbar><Category type="tv" /></LayoutWithNavbar>} />
-            <Route path="/anime" element={<LayoutWithNavbar><Category type="tv" isAnime={true} /></LayoutWithNavbar>} />
+            
+            {/* Anime Routes */}
+            <Route path="/anime" element={<LayoutWithNavbar><AnimeHome /></LayoutWithNavbar>} />
+            <Route path="/anime/watch/:id" element={<LayoutWithNavbar><AnimeWatch /></LayoutWithNavbar>} />
+            <Route path="/anime/search" element={<LayoutWithNavbar><SearchPage /></LayoutWithNavbar>} />
+            
             <Route path="/search" element={<LayoutWithNavbar><SearchPage /></LayoutWithNavbar>} />
             
             <Route path="/global" element={<LayoutWithNavbar><GlobalHome /></LayoutWithNavbar>} />

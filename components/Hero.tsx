@@ -89,6 +89,21 @@ const Hero: React.FC<HeroProps> = ({ items }) => {
       {/* Carousel Items */}
       {carouselItems.map((media, index) => {
         const isActive = index === currentIndex;
+        
+        // Image Handling
+        const imageUrl = media.backdrop_path 
+            ? (media.backdrop_path.startsWith('http') ? media.backdrop_path : `${IMAGE_BASE_URL}/${BACKDROP_SIZE}${media.backdrop_path}`)
+            : (media.poster_path && media.poster_path.startsWith('http') ? media.poster_path : '');
+
+        // Route Handling
+        const watchLink = media.media_type === 'anime' 
+            ? `/anime/watch/${media.id}` 
+            : `/watch/${media.media_type}/${media.id}`;
+        
+        const infoLink = media.media_type === 'anime' 
+            ? `/anime/watch/${media.id}?tab=info`
+            : `/watch/${media.media_type}/${media.id}?tab=info`;
+
         return (
           <div
             key={media.id}
@@ -99,7 +114,7 @@ const Hero: React.FC<HeroProps> = ({ items }) => {
             {/* Background Image */}
             <div className="absolute inset-0">
               <img
-                src={`${IMAGE_BASE_URL}/${BACKDROP_SIZE}${media.backdrop_path}`}
+                src={imageUrl}
                 alt={media.title || media.name}
                 className="w-full h-full object-cover"
               />
@@ -117,7 +132,7 @@ const Hero: React.FC<HeroProps> = ({ items }) => {
                     #{index + 1} Trending
                   </span>
                   <span className="text-gray-300 text-xs font-semibold uppercase tracking-widest border border-gray-600 px-2 py-1 rounded">
-                    {media.media_type === 'tv' ? 'Series' : 'Movie'}
+                    {media.media_type === 'tv' ? 'Series' : (media.media_type === 'anime' ? 'Anime' : 'Movie')}
                   </span>
                 </div>
 
@@ -134,14 +149,14 @@ const Hero: React.FC<HeroProps> = ({ items }) => {
                 {/* Buttons - Fixed to be width-auto based on content */}
                 <div className="flex flex-row flex-nowrap items-center gap-3 pt-4">
                   <Link
-                    to={`/watch/${media.media_type}/${media.id}`}
+                    to={watchLink}
                     className="w-auto flex-none justify-center flex items-center space-x-2 bg-white text-slate-950 px-6 py-3 rounded-lg font-bold hover:bg-gray-200 transition-transform active:scale-95 shadow-lg shadow-white/10 whitespace-nowrap text-sm sm:text-base"
                   >
                     <Play className="h-4 w-4 fill-current" />
                     <span>Watch</span>
                   </Link>
                   <Link
-                    to={`/watch/${media.media_type}/${media.id}?tab=info`}
+                    to={infoLink}
                     className="w-auto flex-none justify-center flex items-center space-x-2 bg-slate-800/60 backdrop-blur-md text-white px-6 py-3 rounded-lg font-semibold hover:bg-slate-700/60 transition-colors border border-white/20 hover:border-white/40 whitespace-nowrap text-sm sm:text-base"
                   >
                     <Info className="h-4 w-4" />

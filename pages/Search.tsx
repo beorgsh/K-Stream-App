@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import { searchContent } from '../services/api';
+import { searchAnime } from '../services/anime';
 import { Media } from '../types';
 import MediaCard from '../components/MediaCard';
 import { GridSkeleton } from '../components/Skeleton';
@@ -16,6 +17,7 @@ const SearchPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const isGlobal = location.pathname.includes('/global');
+  const isAnime = location.pathname.includes('/anime');
 
   // Update input when URL query changes
   useEffect(() => {
@@ -32,10 +34,22 @@ const SearchPage: React.FC = () => {
       setLoading(true);
       try {
         const wait = new Promise(r => setTimeout(r, 800));
-        const [data] = await Promise.all([
-            searchContent(query, isGlobal),
-            wait
-        ]);
+        let data: Media[] = [];
+        
+        if (isAnime) {
+             const [animeData] = await Promise.all([
+                 searchAnime(query),
+                 wait
+             ]);
+             data = animeData;
+        } else {
+             const [tmdbData] = await Promise.all([
+                searchContent(query, isGlobal),
+                wait
+            ]);
+            data = tmdbData;
+        }
+        
         setResults(data);
       } catch (error) {
         console.error("Search failed", error);
@@ -44,19 +58,19 @@ const SearchPage: React.FC = () => {
       }
     };
     doSearch();
-  }, [query, isGlobal]);
+  }, [query, isGlobal, isAnime]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (inputValue.trim()) {
-        const searchPath = isGlobal ? '/global/search' : '/search';
+        const searchPath = isAnime ? '/anime/search' : (isGlobal ? '/global/search' : '/search');
         navigate(`${searchPath}?q=${encodeURIComponent(inputValue)}`);
     }
   };
 
   const clearSearch = () => {
       setInputValue('');
-      const searchPath = isGlobal ? '/global/search' : '/search';
+      const searchPath = isAnime ? '/anime/search' : (isGlobal ? '/global/search' : '/search');
       navigate(searchPath);
   };
 
@@ -66,14 +80,14 @@ const SearchPage: React.FC = () => {
       {/* Search Input Area */}
       <div className="max-w-4xl mx-auto mb-10">
         <h1 className="text-3xl font-bold text-center text-white mb-8">
-            {isGlobal ? 'Global' : 'K-Drama'} Search
+            {isAnime ? 'Anime' : (isGlobal ? 'Global' : 'K-Drama')} Search
         </h1>
         <form onSubmit={handleSearchSubmit} className="relative group">
             <input 
                 type="text" 
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder={isGlobal ? "Search for movies & TV shows..." : "Search for Asian Dramas, Anime & Movies..."}
+                placeholder={isAnime ? "Search Anime..." : (isGlobal ? "Search for movies & TV shows..." : "Search for Asian Dramas, Anime & Movies...")}
                 className="w-full bg-slate-900 border border-white/10 rounded-2xl py-4 pl-14 pr-12 text-white text-lg placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent shadow-xl transition-all"
                 autoFocus
             />

@@ -30,12 +30,22 @@ const MediaCard: React.FC<MediaCardProps> = ({ media }) => {
     ? `S${media.last_season}:E${media.last_episode}`
     : null;
 
+  // Image handling: Check if poster_path is absolute (Anime API) or relative (TMDB)
+  const imageUrl = media.poster_path 
+    ? (media.poster_path.startsWith('http') ? media.poster_path : `${IMAGE_BASE_URL}/${POSTER_SIZE}${media.poster_path}`)
+    : null;
+
+  // Route handling: Anime has dedicated watch route
+  const linkPath = media.media_type === 'anime' 
+    ? `/anime/watch/${media.id}` 
+    : `/watch/${media.media_type}/${media.id}`;
+
   return (
-    <Link to={`/watch/${media.media_type}/${media.id}`} className="group/card relative block w-full flex-shrink-0 cursor-pointer">
+    <Link to={linkPath} className="group/card relative block w-full flex-shrink-0 cursor-pointer">
       <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-slate-800 shadow-md transition-transform duration-300 group-hover/card:scale-105 group-hover/card:shadow-xl group-hover/card:shadow-indigo-500/20 ring-1 ring-white/10">
-        {media.poster_path ? (
+        {imageUrl ? (
           <img
-            src={`${IMAGE_BASE_URL}/${POSTER_SIZE}${media.poster_path}`}
+            src={imageUrl}
             alt={title}
             loading="lazy"
             className="h-full w-full object-cover transition-opacity duration-300"

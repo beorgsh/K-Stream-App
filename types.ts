@@ -1,5 +1,6 @@
+
 export interface Media {
-  id: number;
+  id: number | string; // Updated to support Anime string IDs
   title?: string;
   name?: string; // TV shows use 'name'
   poster_path: string | null;
@@ -8,7 +9,7 @@ export interface Media {
   vote_average: number;
   release_date?: string;
   first_air_date?: string;
-  media_type: 'movie' | 'tv';
+  media_type: 'movie' | 'tv' | 'anime';
   original_language: string;
   genre_ids?: number[];
   // Added for Continue Watching
@@ -73,8 +74,8 @@ export interface TMDBResponse<T> {
 
 // Stored data structure from Player
 export interface StoredMediaData {
-  id: number;
-  type: 'movie' | 'tv';
+  id: number | string;
+  type: 'movie' | 'tv' | 'anime';
   title: string;
   poster_path: string | null;
   backdrop_path: string | null;
@@ -105,10 +106,45 @@ export interface SavedRoom {
   password?: string; // Storing simple password for this MVP
   hostName: string;
   media: {
-    id: number;
-    type: 'movie' | 'tv';
+    id: number | string;
+    type: 'movie' | 'tv' | 'anime';
     title: string;
     poster_path: string | null;
     backdrop_path: string | null;
   };
+}
+
+// --- Anime Specific Types ---
+
+export interface AnimeEpisode {
+    episodeId: string;
+    number: number;
+    title: string;
+    isFiller: boolean;
+}
+
+export interface AnimeStreamSource {
+    url: string;
+    type: string;
+    isM3U8: boolean;
+    quality?: string;
+}
+
+export interface AnimeSubtitle {
+    url: string;
+    lang: string;
+}
+
+export interface AnimeStreamData {
+    headers: {
+        Referer: string;
+    };
+    sources: AnimeStreamSource[];
+    subtitles?: AnimeSubtitle[];
+    tracks?: {
+        file: string;
+        label: string;
+        kind: string;
+        default?: boolean;
+    }[];
 }
