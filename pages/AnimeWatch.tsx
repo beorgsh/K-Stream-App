@@ -20,7 +20,7 @@ const AnimeWatch: React.FC = () => {
   
   // Server State
   const [servers, setServers] = useState<{ sub: any[], dub: any[], raw: any[] }>({ sub: [], dub: [], raw: [] });
-  const [selectedServer, setSelectedServer] = useState<string>('vidstreaming');
+  const [selectedServer, setSelectedServer] = useState<string>('hd-1'); // Default to hd-1
   const [serverCategory, setServerCategory] = useState<'sub' | 'dub' | 'raw'>('sub');
   
   // UI State
@@ -64,8 +64,6 @@ const AnimeWatch: React.FC = () => {
 
   const handleEpisodeSelect = async (epId: string) => {
       setCurrentEpisodeId(epId);
-      // Reset server choice on new episode to default or keep existing if available?
-      // Usually best to refetch server list first
       setLoadingSource(true);
       setVideoSrc('');
       
@@ -93,15 +91,23 @@ const AnimeWatch: React.FC = () => {
           const serverExists = availableServers.find((s: any) => s.serverName === targetServer);
           
           if (!serverExists && availableServers.length > 0) {
-              // Prefer vidstreaming or megacloud
+              // Priority: hd-1 -> vidstreaming -> megacloud -> first available
+              const hd1 = availableServers.find((s: any) => s.serverName === 'hd-1');
               const vidstreaming = availableServers.find((s: any) => s.serverName === 'vidstreaming');
               const megacloud = availableServers.find((s: any) => s.serverName === 'megacloud');
-              targetServer = vidstreaming?.serverName || megacloud?.serverName || availableServers[0].serverName;
+              
+              targetServer = hd1?.serverName || vidstreaming?.serverName || megacloud?.serverName || availableServers[0].serverName;
           }
 
           if (targetServer) {
               setSelectedServer(targetServer);
-              // 4. Load Source
+              // 4. Load Source (only if not handled by useEffect)
+              // Since setSelectedServer might not trigger effect if value is same, we force load if needed or rely on effect?
+              // To be safe, if the selectedServer state doesn't change, the effect won't fire. 
+              // But we just changed episodes, so we MUST load source.
+              // However, currentEpisodeId changed, so effect *should* check that?
+              // Wait, the effect depends on [selectedServer, serverCategory]. It does NOT depend on currentEpisodeId (to avoid loops or stale closure issues potentially).
+              // Let's manually call loadSource here to be immediate.
               await loadSource(epId, targetServer, targetCategory);
           } else {
               setLoadingSource(false); // No servers available
@@ -180,7 +186,10 @@ const AnimeWatch: React.FC = () => {
              <div className="w-full aspect-video bg-slate-900 rounded-xl flex items-center justify-center border border-slate-800 flex-col gap-2">
                  <AlertCircle className="h-8 w-8 text-red-500" />
                  <p className="text-gray-400">Stream unavailable for this server.</p>
-                 <button onClick={() => handleEpisodeSelect(currentEpisodeId!)} className="text-xs bg-white/10 px-3 py-1 rounded hover:bg-white/20">Retry</button>
+                 {availableCategories.length > 0 && (
+                    <p className="text-xs text-gray-500">Try switching servers below</p>
+                 )}
+                 <button onClick={() => handleEpisodeSelect(currentEpisodeId!)} className="text-xs bg-white/10 px-3 py-1 rounded hover:bg-white/20 mt-2">Retry</button>
              </div>
           )}
           
