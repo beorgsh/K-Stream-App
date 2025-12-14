@@ -122,24 +122,39 @@ export const fetchAnimeEpisodes = async (id: string): Promise<AnimeEpisode[]> =>
 };
 
 const processServers = (servers: any[]) => {
-    const sub = servers.filter((s: any) => s.type === 'sub').map((s: any) => ({ serverName: s.server_name, serverId: s.server_id, type: 'sub' }));
-    const dub = servers.filter((s: any) => s.type === 'dub').map((s: any) => ({ serverName: s.server_name, serverId: s.server_id, type: 'dub' }));
-    const raw = servers.filter((s: any) => s.type === 'raw').map((s: any) => ({ serverName: s.server_name, serverId: s.server_id, type: 'raw' }));
+    // Helper to safely extract server name
+    const getName = (s: any) => s.server_name || s.name || s.type || 'Unknown';
+    const getId = (s: any) => s.server_id || s.id;
+
+    const sub = servers.filter((s: any) => s.type === 'sub').map((s: any) => ({ serverName: getName(s), serverId: getId(s), type: 'sub' }));
+    const dub = servers.filter((s: any) => s.type === 'dub').map((s: any) => ({ serverName: getName(s), serverId: getId(s), type: 'dub' }));
+    const raw = servers.filter((s: any) => s.type === 'raw').map((s: any) => ({ serverName: getName(s), serverId: getId(s), type: 'raw' }));
     return { sub, dub, raw };
 };
 
 export const fetchAnimeServers = async (episodeId: string): Promise<{ sub: any[], dub: any[], raw: any[] }> => {
-    // 1. Try dedicated servers endpoint
-    let data = await fetchJson(`/servers/${episodeId}`);
+    // Strategy: Try multiple endpoints to find server list
     
+    // 1. Try dedicated servers endpoint (Standard)
+    let data = await fetchJson(`/servers/${episodeId}`);
     if (data.success && Array.isArray(data.results)) {
         return processServers(data.results);
     }
     
-    // 2. Fallback: Try fetching stream with defaults to get server list in response
-    // 'hd-1' and 'sub' are safe defaults for this API
+    // 2. Try generic stream endpoint (often returns default servers)
+    data = await fetchJson(`/stream?id=${episodeId}`);
+    if (data.success && data.results?.servers) {
+        return processServers(data.results.servers);
+    }
+
+    // 3. Try with specific common server 'hd-1'
     data = await fetchJson(`/stream?id=${episodeId}&server=hd-1&type=sub`);
-    
+    if (data.success && data.results?.servers) {
+        return processServers(data.results.servers);
+    }
+
+     // 4. Try with specific common server 'vidstreaming'
+    data = await fetchJson(`/stream?id=${episodeId}&server=vidstreaming&type=sub`);
     if (data.success && data.results?.servers) {
         return processServers(data.results.servers);
     }
@@ -156,8 +171,14 @@ export const fetchAnimeSources = async (episodeId: string, server: string, categ
     
     if (!data.success || !data.results?.streamingLink) return null;
 
+    let links = data.results.streamingLink;
+    // Check if links is an array, if not, wrap it
+    if (!Array.isArray(links)) {
+        links = [links];
+    }
+
     // Use the first available link
-    const streamData = data.results.streamingLink.find((l: any) => l.link?.file);
+    const streamData = links.find((l: any) => l.link?.file);
     if (!streamData) return null;
 
     return {

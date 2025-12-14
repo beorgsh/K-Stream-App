@@ -4,7 +4,7 @@ import { fetchAnimeDetails, fetchAnimeEpisodes, fetchAnimeSources, fetchAnimeSer
 import { MediaDetails, AnimeEpisode } from '../types';
 import AnimePlayer from '../components/AnimePlayer';
 import { WatchSkeleton } from '../components/Skeleton';
-import { AlertCircle, ChevronLeft, Info, List, Server, Settings } from 'lucide-react';
+import { AlertCircle, ChevronLeft, Info, List, Server, Settings, RefreshCw } from 'lucide-react';
 
 const AnimeWatch: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -27,6 +27,7 @@ const AnimeWatch: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'episodes' | 'info'>('episodes');
   const [loading, setLoading] = useState(true);
   const [loadingSource, setLoadingSource] = useState(false);
+  const [loadingServers, setLoadingServers] = useState(false);
 
   // Initial Load
   useEffect(() => {
@@ -55,22 +56,28 @@ const AnimeWatch: React.FC = () => {
     init();
   }, [id]);
 
-  // When Server or Category changes, re-fetch source
+  // When Episode, Server or Category changes, re-fetch source
+  // We use a separate effect to ensure manual server change triggers reload
   useEffect(() => {
     if (currentEpisodeId && selectedServer) {
         loadSource(currentEpisodeId, selectedServer, serverCategory);
     }
-  }, [selectedServer, serverCategory]);
+  }, [selectedServer, serverCategory]); 
+  // removed currentEpisodeId from dep array here to prevent double call when handleEpisodeSelect calls loadSource manually, 
+  // BUT we need it if we navigate. handleEpisodeSelect handles the initial load for a new episode.
 
   const handleEpisodeSelect = async (epId: string) => {
       setCurrentEpisodeId(epId);
       setLoadingSource(true);
+      setLoadingServers(true);
       setVideoSrc('');
+      setServers({ sub: [], dub: [], raw: [] }); // Clear old servers
       
       try {
           // 1. Fetch available servers for this episode
           const serverData = await fetchAnimeServers(epId);
           setServers(serverData);
+          setLoadingServers(false);
 
           // 2. Decide which server/category to use
           // Keep current category if available, else switch to sub
@@ -101,21 +108,19 @@ const AnimeWatch: React.FC = () => {
 
           if (targetServer) {
               setSelectedServer(targetServer);
-              // 4. Load Source (only if not handled by useEffect)
-              // Since setSelectedServer might not trigger effect if value is same, we force load if needed or rely on effect?
-              // To be safe, if the selectedServer state doesn't change, the effect won't fire. 
-              // But we just changed episodes, so we MUST load source.
-              // However, currentEpisodeId changed, so effect *should* check that?
-              // Wait, the effect depends on [selectedServer, serverCategory]. It does NOT depend on currentEpisodeId (to avoid loops or stale closure issues potentially).
-              // Let's manually call loadSource here to be immediate.
+              // Manually call loadSource to ensure it runs immediately with new params
               await loadSource(epId, targetServer, targetCategory);
           } else {
-              setLoadingSource(false); // No servers available
+              // No servers found? Try a hail mary with 'hd-1' anyway
+              console.warn("No servers found, trying default hd-1");
+              setSelectedServer('hd-1');
+              await loadSource(epId, 'hd-1', 'sub');
           }
 
       } catch (e) {
           console.error("Failed to load episode data", e);
           setLoadingSource(false);
+          setLoadingServers(false);
       }
   };
 
@@ -139,6 +144,10 @@ const AnimeWatch: React.FC = () => {
           setLoadingSource(false);
       }
   };
+
+  const reloadServers = async () => {
+      if(currentEpisodeId) handleEpisodeSelect(currentEpisodeId);
+  }
 
   if (loading || !details) return <WatchSkeleton />;
 
@@ -185,10 +194,7 @@ const AnimeWatch: React.FC = () => {
           ) : (
              <div className="w-full aspect-video bg-slate-900 rounded-xl flex items-center justify-center border border-slate-800 flex-col gap-2">
                  <AlertCircle className="h-8 w-8 text-red-500" />
-                 <p className="text-gray-400">Stream unavailable for this server.</p>
-                 {availableCategories.length > 0 && (
-                    <p className="text-xs text-gray-500">Try switching servers below</p>
-                 )}
+                 <p className="text-gray-400">Stream unavailable.</p>
                  <button onClick={() => handleEpisodeSelect(currentEpisodeId!)} className="text-xs bg-white/10 px-3 py-1 rounded hover:bg-white/20 mt-2">Retry</button>
              </div>
           )}
@@ -216,13 +222,15 @@ const AnimeWatch: React.FC = () => {
                             {cat}
                         </button>
                     )) : (
-                        <span className="text-xs text-gray-500 px-2">No Sources</span>
+                         <div className="text-xs text-gray-500 px-2 flex items-center gap-1">
+                             {loadingServers ? 'Loading Info...' : 'No Info'}
+                         </div>
                     )}
                 </div>
             </div>
 
             {/* Server List */}
-            {currentCategoryServers.length > 0 && (
+            {currentCategoryServers.length > 0 ? (
                 <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-white/5">
                     <div className="flex items-center gap-2 text-xs text-gray-400 mr-2">
                         <Settings className="h-3 w-3" />
@@ -237,6 +245,17 @@ const AnimeWatch: React.FC = () => {
                             {s.serverName}
                         </button>
                     ))}
+                </div>
+            ) : (
+                <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+                    <span className="text-xs text-gray-500">
+                        {loadingServers ? 'Scanning for servers...' : 'No servers found.'}
+                    </span>
+                    {!loadingServers && (
+                        <button onClick={reloadServers} className="flex items-center gap-1 text-xs text-indigo-400 hover:text-white">
+                            <RefreshCw className="h-3 w-3" /> Reload Servers
+                        </button>
+                    )}
                 </div>
             )}
           </div>
