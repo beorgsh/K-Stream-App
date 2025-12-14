@@ -93,10 +93,13 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
       poster: 'true',
       title: 'true',
       hideServerControls: 'false',
-      caption: 'en',
-      sub: 'en',
-      lang: 'en'
     });
+
+    // Server specific configurations
+    if (currentServer.name === 'VidLink') {
+        params.set('player', 'jw');      // Force JW Player
+        params.set('multiLang', 'true'); // Enable multi-language support (Subs/Audio)
+    }
 
     const baseUrl = currentServer.url;
     const isEmbedPath = currentServer.type === 'embed';
@@ -118,7 +121,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     durationRef.current = 0;
   }, [tmdbId, type, season, episode, currentServer]);
 
-  // --- Event Listeners (VidFast Communication) ---
+  // --- Event Listeners (VidFast/VidLink Communication) ---
   useEffect(() => {
     const handleMessage = ({ origin, data }: MessageEvent) => {
         // Allow messages from known providers
