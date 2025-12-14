@@ -1,6 +1,6 @@
 import React from 'react';
 import { Star, Play, Clock } from 'lucide-react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation } from './Navbar';
 import { Media } from '../types';
 import { IMAGE_BASE_URL, POSTER_SIZE } from '../constants';
 

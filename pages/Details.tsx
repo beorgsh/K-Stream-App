@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate } from '../components/Navbar';
 import { fetchMediaDetails } from '../services/api';
 import { MediaDetails } from '../types';
 import { DetailsSkeleton } from '../components/Skeleton';

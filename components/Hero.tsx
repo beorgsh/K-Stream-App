@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Play, Info } from 'lucide-react';
 import { Media } from '../types';
 import { IMAGE_BASE_URL, BACKDROP_SIZE } from '../constants';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation } from './Navbar';
 
 interface HeroProps {
   items: Media[];

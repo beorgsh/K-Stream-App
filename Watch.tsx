@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
-import { fetchMediaDetails } from '../services/api';
-import { MediaDetails } from '../types';
-import VideoPlayer, { VideoPlayerRef } from '../components/VideoPlayer';
-import SeasonSelector from '../components/SeasonSelector';
-import { WatchSkeleton } from '../components/Skeleton';
+import { useParams, Link, useSearchParams, useNavigate } from './components/Navbar';
+import { fetchMediaDetails } from './services/api';
+import { MediaDetails } from './types';
+import VideoPlayer, { VideoPlayerRef } from './components/VideoPlayer';
+import SeasonSelector from './components/SeasonSelector';
+import { WatchSkeleton } from './components/Skeleton';
 import { ChevronLeft, AlertCircle, List, Info } from 'lucide-react';
-import { auth } from '../services/firebase';
+import { auth } from './services/firebase';
 
 const Watch: React.FC = () => {
   const { type, id } = useParams<{ type: 'movie' | 'tv'; id: string }>();

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from '../components/Navbar';
 import { Home, AlertTriangle } from 'lucide-react';
 
 const NotFound: React.FC = () => {

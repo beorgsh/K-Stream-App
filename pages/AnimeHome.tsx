@@ -7,7 +7,7 @@ import { getContinueWatching } from '../services/progress';
 import { auth } from '../services/firebase';
 import { Media } from '../types';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from '../components/Navbar';
 
 const AnimeHome: React.FC = () => {
   const [trending, setTrending] = useState<Media[]>([]);
