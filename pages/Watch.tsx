@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { fetchMediaDetails } from '../services/api';
+import { fetchAnilistMetadata, fetchAnilistId } from '../services/anilist';
 import { MediaDetails } from '../types';
 import VideoPlayer, { VideoPlayerRef } from '../components/VideoPlayer';
 import SeasonSelector from '../components/SeasonSelector';
 import MediaCard from '../components/MediaCard';
 import { WatchSkeleton } from '../components/Skeleton';
-import { AlertCircle, List, Info, Grid, Star, Clock, Users, Calendar } from 'lucide-react';
+import { AlertCircle, List, Info, Grid, Star, Clock, Users, Calendar, Volume2 } from 'lucide-react';
 import { auth } from '../services/firebase';
 import { IMAGE_BASE_URL } from '../constants';
 
@@ -16,6 +17,9 @@ const Watch: React.FC = () => {
   const navigate = useNavigate();
 
   const [details, setDetails] = useState<MediaDetails | null>(null);
+  // Separate AniList ID state to pass to player
+  const [anilistId, setAnilistId] = useState<number | null>(null);
+  
   const [season, setSeason] = useState(1);
   const [episode, setEpisode] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -33,17 +37,15 @@ const Watch: React.FC = () => {
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
         if (!user) {
-            // Not logged in -> Redirect to login
             navigate('/login');
         } else {
-            // Logged in -> Allow loading
             setAuthChecked(true);
         }
     });
     return () => unsubscribe();
   }, [navigate]);
 
-  // 2. Load Content (Only after Auth Check)
+  // 2. Load Content
   useEffect(() => {
     if (!authChecked || !type || !id) return;
     
@@ -52,18 +54,64 @@ const Watch: React.FC = () => {
       setError(null);
       try {
         const wait = new Promise(r => setTimeout(r, 800));
-        const [data] = await Promise.all([
+        
+        // Fetch TMDB Details first (needed for ID, Seasaons structure, etc)
+        const [tmdbData] = await Promise.all([
            fetchMediaDetails(type as 'movie' | 'tv', Number(id)),
            wait
         ]);
-        setDetails(data);
+
+        let finalDetails = { ...tmdbData };
+
+        // Check if Anime (Animation Genre ID 16 + Japanese Language)
+        const isAnimeCheck = tmdbData.genres?.some(g => g.id === 16) && tmdbData.original_language === 'ja';
         
-        // Handle Tab Query Param
+        if (isAnimeCheck) {
+            // Fetch Metadata from AniList to override TMDB
+            const aniMetadata = await fetchAnilistMetadata(Number(id));
+            
+            if (aniMetadata) {
+                setAnilistId(aniMetadata.id);
+                
+                // Override details with AniList data
+                finalDetails.title = aniMetadata.title?.english || aniMetadata.title?.romaji || tmdbData.title;
+                finalDetails.name = finalDetails.title; // for TV
+                
+                // Clean description (remove html tags)
+                if (aniMetadata.description) {
+                    finalDetails.overview = aniMetadata.description.replace(/<[^>]*>?/gm, '');
+                }
+                
+                // Images
+                if (aniMetadata.coverImage?.extraLarge) {
+                    finalDetails.poster_path = aniMetadata.coverImage.extraLarge; // Will be full URL
+                }
+                if (aniMetadata.bannerImage) {
+                    finalDetails.backdrop_path = aniMetadata.bannerImage; // Will be full URL
+                }
+                
+                // Rating
+                if (aniMetadata.averageScore) {
+                   finalDetails.vote_average = aniMetadata.averageScore / 10;
+                }
+                
+                // Status
+                if (aniMetadata.status) {
+                    finalDetails.status = aniMetadata.status;
+                }
+            } else {
+                // Fallback if metadata fails but we need ID
+                const aId = await fetchAnilistId(Number(id));
+                setAnilistId(aId);
+            }
+        }
+        
+        setDetails(finalDetails);
+        
         const tabParam = searchParams.get('tab');
         if (tabParam === 'info') {
             setActiveTab('info');
-        } else if (data.media_type === 'movie') {
-            // Movies default to info or recommendations since no episodes
+        } else if (finalDetails.media_type === 'movie') {
             setActiveTab('info');
         } else {
             setActiveTab('episodes');
@@ -80,10 +128,7 @@ const Watch: React.FC = () => {
     loadDetails();
   }, [authChecked, type, id, searchParams]);
 
-  // Show Skeleton while checking auth or loading data
-  if (!authChecked || loading) {
-    return <WatchSkeleton />;
-  }
+  if (!authChecked || loading) return <WatchSkeleton />;
 
   if (error || !details) {
     return (
@@ -104,9 +149,13 @@ const Watch: React.FC = () => {
 
   const isTV = details.media_type === 'tv';
   const recommendations = details.similar?.results || details.recommendations?.results || [];
-
-  // Determine if content is Anime (Genre ID 16 + Language 'ja')
   const isAnime = details.genres?.some(g => g.id === 16) && details.original_language === 'ja';
+
+  // Helper for images (AniList gives full URL, TMDB gives path)
+  const getPoster = (path: string | null) => {
+      if (!path) return '';
+      return path.startsWith('http') ? path : `${IMAGE_BASE_URL}/w300${path}`;
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 pt-20 pb-10 px-4 sm:px-6 lg:px-8 animate-fade-in">
@@ -117,7 +166,7 @@ const Watch: React.FC = () => {
         <div className={`xl:col-span-3 space-y-4`}>
           <VideoPlayer 
             ref={playerRef}
-            tmdbId={Number(details.id)} 
+            tmdbId={Number(id)} // Keep TMDB ID for tracking/compatibility
             type={details.media_type as 'movie' | 'tv'} 
             season={season}
             episode={episode}
@@ -125,9 +174,9 @@ const Watch: React.FC = () => {
             posterPath={details.poster_path}
             backdropPath={details.backdrop_path}
             isAnime={isAnime}
+            anilistId={anilistId}
           />
           
-          {/* Simple Title Bar below player */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/50 backdrop-blur-md p-4 rounded-xl border border-white/10">
             <div>
                <h1 className="text-xl md:text-2xl font-bold text-white">
@@ -139,38 +188,19 @@ const Watch: React.FC = () => {
                  </p>
                )}
             </div>
+             {!isAnime && (
+                 <div className="flex items-center gap-1.5 text-[10px] text-gray-500 bg-black/20 px-2 py-1 rounded border border-white/5">
+                    <Volume2 className="h-3 w-3" />
+                    <span>Audio & Subtitles are controlled within the player.</span>
+                </div>
+             )}
           </div>
         </div>
 
-        {/* Sidebar / Tabs Section */}
+        {/* Sidebar */}
         <div className="xl:col-span-1 flex flex-col h-auto xl:h-[calc(100vh-120px)] xl:sticky xl:top-24">
-            
-            {/* Mobile Tab Switcher */}
-            <div className="flex xl:hidden gap-2 mb-4 bg-slate-900/50 p-1.5 rounded-xl border border-white/5 overflow-x-auto hide-scrollbar">
-                {isTV && (
-                    <button 
-                        onClick={() => setActiveTab('episodes')}
-                        className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'episodes' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-white/5'}`}
-                    >
-                        <List className="h-4 w-4" /> Episodes
-                    </button>
-                )}
-                <button 
-                    onClick={() => setActiveTab('info')}
-                    className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'info' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-white/5'}`}
-                >
-                    <Info className="h-4 w-4" /> Info
-                </button>
-                 <button 
-                    onClick={() => setActiveTab('recommendations')}
-                    className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'recommendations' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-white/5'}`}
-                >
-                    <Grid className="h-4 w-4" /> Related
-                </button>
-            </div>
-
-            {/* Desktop Tab Switcher (Sidebar Header) */}
-            <div className="hidden xl:flex items-center gap-1 mb-3 bg-slate-900/80 p-1 rounded-lg border border-white/5">
+            {/* Tab Switcher */}
+            <div className="flex items-center gap-1 mb-3 bg-slate-900/80 p-1 rounded-lg border border-white/5">
                 {isTV && (
                     <button 
                         onClick={() => setActiveTab('episodes')}
@@ -193,12 +223,11 @@ const Watch: React.FC = () => {
                 </button>
             </div>
 
-            {/* Content Container */}
             <div className="flex-1 overflow-hidden min-h-[400px]">
-                {/* Episodes Tab */}
+                {/* Episodes */}
                 {isTV && activeTab === 'episodes' && details.seasons && (
                     <SeasonSelector 
-                        tvId={Number(details.id)}
+                        tvId={Number(id)}
                         seasons={details.seasons}
                         currentSeason={season}
                         currentEpisode={episode}
@@ -207,14 +236,13 @@ const Watch: React.FC = () => {
                     />
                 )}
 
-                {/* Info Tab */}
+                {/* Info */}
                 {activeTab === 'info' && (
                     <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-white/5 p-6 h-full overflow-y-auto space-y-6">
-                        {/* Poster & Stats */}
                         <div className="flex gap-4">
                            <div className="w-24 flex-shrink-0 rounded-lg overflow-hidden shadow-lg border border-white/10">
                               <img 
-                                src={details.poster_path ? `${IMAGE_BASE_URL}/w300${details.poster_path}` : ''} 
+                                src={getPoster(details.poster_path)} 
                                 alt="" 
                                 className="w-full h-full object-cover"
                               />
@@ -228,25 +256,15 @@ const Watch: React.FC = () => {
                                   <Calendar className="h-3 w-3" />
                                   <span>{details.release_date || details.first_air_date}</span>
                                </div>
-                               {details.runtime ? (
-                                   <div className="flex items-center gap-2 text-xs text-gray-300">
-                                      <Clock className="h-3 w-3" />
-                                      <span>{details.runtime} min</span>
-                                   </div>
-                               ) : null}
                                <span className="inline-block text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-white/10 text-gray-300">
                                  {details.status}
                                </span>
                            </div>
                         </div>
-
-                        {/* Overview */}
                         <div>
                             <h3 className="text-sm font-bold text-white mb-2">Overview</h3>
                             <p className="text-gray-300 text-sm leading-relaxed">{details.overview}</p>
                         </div>
-
-                        {/* Genres */}
                         <div>
                             <h3 className="text-sm font-bold text-white mb-2">Genres</h3>
                             <div className="flex flex-wrap gap-2">
@@ -257,50 +275,19 @@ const Watch: React.FC = () => {
                                 ))}
                             </div>
                         </div>
-
-                        {/* Cast */}
-                        <div>
-                             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-                                <Users className="h-4 w-4" /> Top Cast
-                             </h3>
-                             <div className="space-y-3">
-                                 {details.credits?.cast.slice(0, 6).map(actor => (
-                                     <div key={actor.id} className="flex items-center gap-3 bg-white/5 p-2 rounded-lg">
-                                         <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-800">
-                                            {actor.profile_path ? (
-                                                <img src={`${IMAGE_BASE_URL}/w185${actor.profile_path}`} className="w-full h-full object-cover" alt={actor.name} />
-                                            ) : (
-                                                <div className="w-full h-full flex items-center justify-center text-[10px] text-gray-500">N/A</div>
-                                            )}
-                                         </div>
-                                         <div className="min-w-0">
-                                             <p className="text-xs font-bold text-white truncate">{actor.name}</p>
-                                             <p className="text-[10px] text-gray-400 truncate">{actor.character}</p>
-                                         </div>
-                                     </div>
-                                 ))}
-                             </div>
-                        </div>
                     </div>
                 )}
 
-                {/* Recommendations Tab */}
+                {/* Recommendations */}
                 {activeTab === 'recommendations' && (
                     <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-white/5 h-full overflow-y-auto p-4">
-                        {recommendations.length > 0 ? (
-                            <div className="grid grid-cols-2 gap-4">
-                                {recommendations.map(media => (
-                                    <div key={media.id} className="w-full">
-                                        <MediaCard media={media} />
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                                <AlertCircle className="h-8 w-8 mb-2" />
-                                <p className="text-sm">No recommendations found.</p>
-                            </div>
-                        )}
+                        <div className="grid grid-cols-2 gap-4">
+                            {recommendations.map(media => (
+                                <div key={media.id} className="w-full">
+                                    <MediaCard media={media} />
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

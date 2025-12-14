@@ -56,6 +56,7 @@ export interface Episode {
   season_number: number;
   still_path: string | null;
   air_date: string;
+  runtime?: number;
 }
 
 export interface CastMember {
@@ -79,6 +80,8 @@ export interface StoredMediaData {
   title: string;
   poster_path: string | null;
   backdrop_path: string | null;
+  original_language?: string; // Added for filtering
+  genre_ids?: number[]; // Added for filtering
   progress: {
     watched: number;
     duration: number;

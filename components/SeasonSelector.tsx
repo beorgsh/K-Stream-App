@@ -63,9 +63,9 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
   const visibleEpisodes = episodes.slice(page * EPISODES_PER_PAGE, (page + 1) * EPISODES_PER_PAGE);
 
   return (
-    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-white/5 h-full flex flex-col overflow-hidden shadow-2xl">
-      {/* Header with Glass Effect */}
-      <div className="p-4 border-b border-white/5 flex flex-col gap-3 bg-white/5 backdrop-blur-md">
+    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-white/5 h-full flex flex-col overflow-hidden shadow-2xl relative">
+      {/* Header - Fixed Top */}
+      <div className="p-4 border-b border-white/5 flex flex-col gap-3 bg-white/5 backdrop-blur-md flex-shrink-0 z-10">
         <div className="flex items-center justify-between">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
             Episodes
@@ -91,7 +91,7 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
             </div>
         </div>
 
-        {/* Range Tabs if many episodes */}
+        {/* Range Tabs */}
         {totalPages > 1 && (
             <div className="flex items-center gap-2 overflow-x-auto hide-scrollbar pb-1">
                 {[...Array(totalPages)].map((_, i) => {
@@ -116,23 +116,22 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
         )}
       </div>
 
-      {/* List - using 'hide-scrollbar' to remove visual indicator */}
-      <div className="flex-1 overflow-y-auto hide-scrollbar bg-transparent">
+      {/* List - Scrollable Independent View */}
+      <div className="flex-1 overflow-y-auto p-2 min-h-0 bg-transparent scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
         {loading ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
              <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
              <p className="text-gray-400 text-sm">Loading season...</p>
           </div>
         ) : (
-          <div className="p-0">
+          <div className="space-y-1">
             {visibleEpisodes.map((ep) => {
               const isActive = selectedSeason === currentSeason && ep.episode_number === currentEpisode;
               
-              // Fallback logic for thumbnail
+              // Smaller thumbnail size
               let imageUrl = null;
               if (ep.still_path) {
-                // Use larger w454 for better quality thumbnails like Anilist
-                imageUrl = `${IMAGE_BASE_URL}/w454_and_h254_bestv2${ep.still_path}`;
+                imageUrl = `${IMAGE_BASE_URL}/w300${ep.still_path}`;
               } else if (showBackdrop) {
                 imageUrl = `${IMAGE_BASE_URL}/w300${showBackdrop}`;
               }
@@ -141,52 +140,50 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
                 <button
                   key={ep.id}
                   onClick={() => onSelect(selectedSeason, ep.episode_number)}
-                  className={`w-full text-left p-3 flex flex-col sm:flex-row items-start sm:items-center gap-3 border-b border-white/5 hover:bg-white/5 transition-all duration-200 group ${
-                    isActive ? 'bg-indigo-600/10' : ''
+                  className={`w-full text-left p-3 flex items-center gap-4 rounded-lg hover:bg-white/5 transition-all duration-200 group ${
+                    isActive ? 'bg-indigo-600/10 border border-indigo-500/20' : 'border border-transparent'
                   }`}
                 >
-                  {/* Thumbnail Container */}
-                  <div className="flex-shrink-0 relative w-full sm:w-40 aspect-video rounded-lg overflow-hidden bg-slate-800 shadow-md">
+                  {/* Episode Number */}
+                  <span className={`text-xl font-bold w-8 text-center flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-gray-600 group-hover:text-gray-400'}`}>
+                    {ep.episode_number}
+                  </span>
+
+                  {/* Thumbnail - Compact */}
+                  <div className="flex-shrink-0 relative w-32 aspect-video rounded overflow-hidden bg-slate-800 shadow-sm border border-white/5">
                     {imageUrl ? (
                       <img 
                         src={imageUrl}
                         alt={ep.name}
                         loading="lazy"
-                        className={`w-full h-full object-cover transition-transform duration-500 ${isActive ? 'opacity-80 scale-105' : 'group-hover:scale-105'}`}
+                        className={`w-full h-full object-cover transition-transform duration-500 ${isActive ? 'opacity-80' : 'group-hover:scale-105 opacity-90 group-hover:opacity-100'}`}
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-gray-600 bg-slate-800/80">
-                        <ImageOff className="h-6 w-6" />
+                        <ImageOff className="h-5 w-5" />
                       </div>
                     )}
                     
-                    {/* Active/Play Overlay */}
+                    {/* Play Overlay */}
                     <div className={`absolute inset-0 flex items-center justify-center ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all duration-300 bg-black/40 backdrop-blur-[1px]`}>
-                         <Play className={`h-8 w-8 ${isActive ? 'text-indigo-400 fill-indigo-400' : 'text-white fill-white'}`} />
-                    </div>
-                    
-                    {/* Episode Number Badge */}
-                    <div className="absolute bottom-1 right-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] font-bold text-white backdrop-blur-md">
-                        EP {ep.episode_number}
+                         <Play className={`h-6 w-6 ${isActive ? 'text-indigo-400 fill-indigo-400' : 'text-white fill-white'}`} />
                     </div>
                   </div>
 
                   {/* Info */}
-                  <div className="flex-1 min-w-0 w-full">
-                    <div className="flex justify-between items-start mb-1">
-                        <h4 className={`text-sm font-bold leading-tight ${isActive ? 'text-indigo-300' : 'text-slate-200'} group-hover:text-white transition-colors line-clamp-1`}>
+                  <div className="flex-1 min-w-0 flex flex-col justify-center h-full">
+                    <div className="flex justify-between items-baseline mb-1">
+                        <h4 className={`text-sm font-bold truncate ${isActive ? 'text-white' : 'text-gray-200'} group-hover:text-white transition-colors`}>
                            {ep.name || `Episode ${ep.episode_number}`}
                         </h4>
-                    </div>
-                    
-                    <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed opacity-80 group-hover:opacity-100 transition-opacity mb-2">
-                      {ep.overview || "No description available."}
-                    </p>
-                    <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-gray-500 font-mono bg-white/5 px-1.5 rounded">
-                            {ep.air_date ? ep.air_date : 'Unknown'}
+                        <span className="text-[10px] text-gray-500 ml-2 whitespace-nowrap font-mono">
+                            {ep.runtime ? `${ep.runtime}m` : ''}
                         </span>
                     </div>
+                    
+                    <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed group-hover:text-gray-400 transition-colors">
+                      {ep.overview || "No description available."}
+                    </p>
                   </div>
                 </button>
               );

@@ -44,12 +44,19 @@ const App: React.FC = () => {
             
             <Route path="/search" element={<LayoutWithNavbar><SearchPage /></LayoutWithNavbar>} />
             <Route path="/anime/search" element={<LayoutWithNavbar><SearchPage /></LayoutWithNavbar>} />
+            <Route path="/global/search" element={<LayoutWithNavbar><SearchPage /></LayoutWithNavbar>} />
             
             <Route path="/rooms" element={<LayoutWithNavbar><Rooms /></LayoutWithNavbar>} />
             <Route path="/login" element={<LayoutWithNavbar><Auth /></LayoutWithNavbar>} />
             
-            {/* Standard Watch Route covers Movies, TV, and Anime (sourced via TMDB) */}
+            {/* Standard Watch Route (K-Drama Default) */}
             <Route path="/watch/:type/:id" element={<LayoutWithNavbar><Watch /></LayoutWithNavbar>} />
+
+            {/* Global Watch Route (Uses same component, keeps 'Global' header active) */}
+            <Route path="/global/watch/:type/:id" element={<LayoutWithNavbar><Watch /></LayoutWithNavbar>} />
+            
+            {/* Dedicated Anime Watch Route */}
+            <Route path="/anime/watch/:type/:id" element={<LayoutWithNavbar><Watch /></LayoutWithNavbar>} />
 
             {/* Watch Party Route (No Navbar/Footer) */}
             <Route path="/party" element={<WatchParty />} />

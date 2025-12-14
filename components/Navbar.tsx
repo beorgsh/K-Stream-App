@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, MonitorPlay, Users, User, LogOut, Edit2, Globe, Clapperboard, ChevronDown, LogIn } from 'lucide-react';
+import { Search, MonitorPlay, Users, User, LogOut, Edit2, Clapperboard, ChevronDown, LogIn, RefreshCw, Loader2 } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { auth, logoutUser, updateUserPassword } from '../services/firebase';
 import Toast from './Toast';
@@ -18,6 +18,9 @@ const Navbar: React.FC = () => {
   const [newDisplayName, setNewDisplayName] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   
+  // Logout State
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  
   // Change Password State
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -32,6 +35,12 @@ const Navbar: React.FC = () => {
   const activeSection = location.pathname.startsWith('/anime') ? 'anime' 
                       : location.pathname.startsWith('/global') ? 'global' 
                       : 'kdrama';
+
+  const sections = [
+      { id: 'kdrama', label: 'K-Drama', path: '/' },
+      { id: 'global', label: 'Global', path: '/global' },
+      { id: 'anime', label: 'Anime', path: '/anime' },
+  ];
 
   useEffect(() => {
     const handleScroll = () => {
@@ -63,9 +72,22 @@ const Navbar: React.FC = () => {
   }, []);
 
   const handleLogout = async () => {
-      await logoutUser();
-      setIsDropdownOpen(false);
-      navigate('/login');
+      if (isLoggingOut) return;
+      setIsLoggingOut(true);
+      try {
+        await logoutUser();
+        setToast({ message: "Signed out successfully. See you soon!", type: 'success' });
+        setIsDropdownOpen(false);
+        // Delay navigation slightly so user sees the toast/state
+        setTimeout(() => {
+            navigate('/login');
+            setIsLoggingOut(false);
+        }, 1000);
+      } catch (error) {
+          console.error("Logout failed", error);
+          setToast({ message: "Failed to sign out.", type: 'error' });
+          setIsLoggingOut(false);
+      }
   };
 
   const openProfileModal = () => {
@@ -124,16 +146,43 @@ const Navbar: React.FC = () => {
     { name: 'Rooms', path: '/rooms', icon: Users },
   ];
 
-  const sections = [
-      { id: 'kdrama', label: 'K-Drama', path: '/' },
-      { id: 'global', label: 'Global', path: '/global' },
-      { id: 'anime', label: 'Anime', path: '/anime' },
-  ];
-
   const getBrandTitle = () => {
       if (activeSection === 'anime') return 'Anime';
       if (activeSection === 'global') return 'Global';
       return 'K-Stream';
+  };
+
+  // Logic to find next section
+  const currentSectionIndex = sections.findIndex(s => s.id === activeSection);
+  const nextSectionIndex = (currentSectionIndex + 1) % sections.length;
+  const nextSection = sections[nextSectionIndex];
+
+  const handleModeSwitch = () => {
+    const isSearch = location.pathname.includes('/search');
+    const query = location.search;
+
+    // If searching, stay in search mode but switch context
+    if (isSearch) {
+        let targetPath = '/search';
+        if (nextSection.id === 'anime') targetPath = '/anime/search';
+        else if (nextSection.id === 'global') targetPath = '/global/search';
+        
+        navigate(`${targetPath}${query}`);
+    } else {
+        navigate(nextSection.path);
+    }
+  };
+
+  const getSearchPath = () => {
+      if (activeSection === 'anime') return "/anime/search";
+      if (activeSection === 'global') return "/global/search";
+      return "/search";
+  };
+  
+  const getHomeLink = () => {
+      if (activeSection === 'anime') return '/anime';
+      if (activeSection === 'global') return '/global';
+      return '/';
   };
 
   return (
@@ -150,55 +199,41 @@ const Navbar: React.FC = () => {
       <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-4">
           
-          {/* LEFT: Logo & Section Switcher */}
+          {/* LEFT: Logo & Dynamic Mode Switcher */}
           <div className="flex items-center gap-6 md:gap-8">
-            <Link to="/" className="flex items-center gap-2 group flex-shrink-0">
+            <Link to={getHomeLink()} className="flex items-center gap-2 group flex-shrink-0">
               <MonitorPlay className="h-7 w-7 text-indigo-500 group-hover:text-indigo-400 transition-colors" />
               <span className="text-lg md:text-xl font-bold tracking-tight text-white group-hover:text-gray-200 transition-colors">
                 {getBrandTitle()}
               </span>
             </Link>
 
-            {/* Desktop Section Switcher */}
-            <div className="hidden md:flex items-center bg-white/5 rounded-full p-1 border border-white/5">
-                {sections.map((section) => (
-                    <Link
-                        key={section.id}
-                        to={section.path}
-                        className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
-                            activeSection === section.id 
-                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' 
-                                : 'text-gray-400 hover:text-white hover:bg-white/5'
-                        }`}
-                    >
-                        {section.label}
-                    </Link>
-                ))}
-            </div>
+            {/* Single Dynamic Mode Button */}
+            <button
+                onClick={handleModeSwitch}
+                className="hidden md:flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-500/50 transition-all group"
+                title={`Switch to ${nextSection.label}`}
+            >
+                <RefreshCw className="h-3 w-3 text-indigo-400 group-hover:rotate-180 transition-transform duration-500" />
+                <span className="text-xs font-bold text-gray-300 group-hover:text-white">
+                    Mode: <span className="text-indigo-400">{sections[currentSectionIndex].label}</span>
+                </span>
+            </button>
           </div>
 
           {/* RIGHT: Search, Links, Auth */}
           <div className="flex items-center gap-2 sm:gap-4">
              
-             {/* Mobile Section Switcher (Compact) */}
-             <div className="md:hidden flex items-center bg-white/5 rounded-full p-1 mr-2">
-                 {sections.map((section) => (
-                    <Link
-                        key={section.id}
-                        to={section.path}
-                        className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all ${
-                            activeSection === section.id 
-                                ? 'bg-indigo-600 text-white' 
-                                : 'text-gray-400'
-                        }`}
-                    >
-                        {section.label}
-                    </Link>
-                ))}
-             </div>
+             {/* Mobile Mode Switcher (Icon Only) */}
+             <button
+                onClick={handleModeSwitch}
+                className="md:hidden p-2 rounded-full bg-white/5 text-indigo-400 mr-1"
+             >
+                 <RefreshCw className="h-4 w-4" />
+             </button>
 
              <Link 
-                to={activeSection === 'anime' ? "/anime/search" : "/search"}
+                to={getSearchPath()}
                 className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors"
              >
                 <Search className="h-5 w-5" />
@@ -292,9 +327,11 @@ const Navbar: React.FC = () => {
                              {user && (
                                 <button 
                                     onClick={handleLogout}
-                                    className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 text-left transition-colors"
+                                    disabled={isLoggingOut}
+                                    className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 text-left transition-colors disabled:opacity-50"
                                 >
-                                    <LogOut className="h-4 w-4" /> Sign Out
+                                    {isLoggingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                                    {isLoggingOut ? 'Signing Out...' : 'Sign Out'}
                                 </button>
                              )}
                          </div>

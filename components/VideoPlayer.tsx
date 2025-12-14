@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import { THEME_COLOR } from '../constants';
 import { saveProgress } from '../services/progress';
-import { Server } from 'lucide-react';
+import { Server, Mic, Captions } from 'lucide-react';
+import { fetchMediaDetails } from '../services/api';
 
 interface VideoPlayerProps {
   tmdbId: number;
@@ -14,7 +15,8 @@ interface VideoPlayerProps {
   onPlayerEvent?: (event: { action: 'play' | 'pause' | 'seek' | 'sync', time: number, playing?: boolean }) => void;
   isHost?: boolean;
   enableProgressSave?: boolean;
-  isAnime?: boolean; // Kept for interface compatibility but ignored logic-wise
+  isAnime?: boolean;
+  anilistId?: number | null;
 }
 
 export interface VideoPlayerRef {
@@ -31,16 +33,20 @@ const SERVERS = [
 ];
 
 const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ 
-  tmdbId, type, season = 1, episode = 1, mediaTitle, posterPath, backdropPath, onPlayerEvent, isHost = true, enableProgressSave = true
+  tmdbId, type, season = 1, episode = 1, mediaTitle, posterPath, backdropPath, onPlayerEvent, isHost = true, enableProgressSave = true, isAnime = false, anilistId
 }, ref) => {
   const [src, setSrc] = useState('');
   const [currentServer, setCurrentServer] = useState(SERVERS[0]);
+  const [animeType, setAnimeType] = useState<'sub' | 'dub'>('sub');
   const iframeRef = useRef<HTMLIFrameElement>(null);
   
   // Track playback state locally for progress saving
   const lastTimeRef = useRef(0);
   const durationRef = useRef(0);
   const isSyncing = useRef(false);
+
+  // Metadata for saving (Fetched once)
+  const [metaData, setMetaData] = useState<{ lang: string, genres: number[] }>({ lang: 'en', genres: [] });
 
   useImperativeHandle(ref, () => ({
     play: (time) => {
@@ -67,25 +73,62 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     }
   }));
 
+  // Handle Auto-Landscape on Fullscreen
+  useEffect(() => {
+    const handleFullscreenChange = async () => {
+        if (document.fullscreenElement) {
+            try {
+                if (screen.orientation && 'lock' in screen.orientation) {
+                    await (screen.orientation as any).lock('landscape');
+                }
+            } catch (error) {
+                console.debug("Orientation lock failed:", error);
+            }
+        } else {
+            try {
+                if (screen.orientation && 'unlock' in screen.orientation) {
+                    (screen.orientation as any).unlock();
+                }
+            } catch (error) {
+                console.debug("Orientation unlock failed:", error);
+            }
+        }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  // Fetch metadata once for progress saving context
+  useEffect(() => {
+     if (enableProgressSave) {
+         fetchMediaDetails(type, tmdbId).then(data => {
+             setMetaData({
+                 lang: data.original_language,
+                 genres: data.genres?.map(g => g.id) || []
+             });
+         }).catch(err => console.error("Failed to fetch meta for progress", err));
+     }
+  }, [tmdbId, type, enableProgressSave]);
+
   useEffect(() => {
     let url = '';
     const params = new URLSearchParams({
-      autoPlay: 'true', 
+      autoplay: '0', 
       theme: THEME_COLOR,
     });
 
-    if (currentServer.type === 'vidsrc-cc') {
-        // VidSrc.cc structure: https://vidsrc.cc/v2/embed/movie/{id} or /tv/{id}/{season}/{episode}
+    if (isAnime && currentServer.type === 'vidsrc-cc') {
+        const idParam = anilistId ? `ani${anilistId}` : `tmdb${tmdbId}`;
+        url = `https://vidsrc.cc/v2/embed/anime/${idParam}/${episode}/${animeType}?autoplay=0`;
+    } else if (currentServer.type === 'vidsrc-cc') {
         const basePath = type === 'movie' ? '/v2/embed/movie' : `/v2/embed/tv`;
         const resourcePath = type === 'movie' ? `/${tmdbId}` : `/${tmdbId}/${season}/${episode}`;
-        url = `${currentServer.url}${basePath}${resourcePath}?autoPlay=true`; 
+        url = `${currentServer.url}${basePath}${resourcePath}?autoplay=0`; 
     } else if (currentServer.type === 'vidsrc-to') {
-        // VidSrc.to structure
         const path = type === 'movie' ? '/embed/movie' : '/embed/tv';
         const resource = type === 'movie' ? `/${tmdbId}` : `/${tmdbId}/${season}/${episode}`;
         url = `${currentServer.url}${path}${resource}`;
     } else {
-        // VidLink/Standard
         if (type === 'movie') {
             url = `${currentServer.url}/movie/${tmdbId}?${params.toString()}`;
         } else {
@@ -94,18 +137,15 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     }
     
     setSrc(url);
-    
-    // Reset refs on source change
     lastTimeRef.current = 0;
     durationRef.current = 0;
-  }, [tmdbId, type, season, episode, currentServer]);
+  }, [tmdbId, type, season, episode, currentServer, isAnime, animeType, anilistId]);
 
-  // Handle messages from embeds (if supported)
+  // Handle messages from embeds
   useEffect(() => {
     const handleMessage = ({ origin, data }: MessageEvent) => {
         if (!data) return;
 
-        // Progress Saving Logic (Best Effort based on provider messages)
         if (data.type === 'PLAYER_EVENT' || (data.data && data.data.currentTime)) {
             const currentTime = data.data?.currentTime || data.currentTime;
             const duration = data.data?.duration || data.duration;
@@ -120,6 +160,8 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
                     title: mediaTitle || 'Unknown',
                     poster_path: posterPath,
                     backdrop_path: backdropPath,
+                    original_language: metaData.lang, // Save for filtering
+                    genre_ids: metaData.genres, // Save for filtering
                     last_season_watched: season,
                     last_episode_watched: episode,
                     progress: {
@@ -134,7 +176,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [enableProgressSave, tmdbId, type, season, episode, mediaTitle, posterPath, backdropPath]);
+  }, [enableProgressSave, tmdbId, type, season, episode, mediaTitle, posterPath, backdropPath, metaData]);
 
   return (
     <div className="space-y-3">
@@ -146,7 +188,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
                     title="Video Player"
                     className="absolute top-0 left-0 w-full h-full z-10"
                     allowFullScreen
-                    allow="autoplay; encrypted-media; picture-in-picture"
+                    allow="autoplay; encrypted-media; picture-in-picture; screen-wake-lock"
                     frameBorder="0"
                 />
             ) : (
@@ -160,26 +202,52 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
             )}
         </div>
 
-        <div className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5 backdrop-blur-sm">
-            <div className="flex items-center gap-2 px-2">
-                <Server className="h-4 w-4 text-indigo-400" />
-                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Server</span>
+        <div className="flex flex-col sm:flex-row items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5 backdrop-blur-sm gap-3">
+            
+            {/* Server Selector */}
+            <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 px-2 border-r border-white/10 pr-4">
+                    <Server className="h-4 w-4 text-indigo-400" />
+                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider hidden sm:block">Server</span>
+                </div>
+                <div className="flex gap-2">
+                    {SERVERS.map((server) => (
+                        <button
+                            key={server.name}
+                            onClick={() => setCurrentServer(server)}
+                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                                currentServer.name === server.name 
+                                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
+                                    : 'bg-slate-800 text-gray-400 hover:bg-slate-700 hover:text-white'
+                            }`}
+                        >
+                            {server.name}
+                        </button>
+                    ))}
+                </div>
             </div>
-            <div className="flex gap-2">
-                {SERVERS.map((server) => (
-                    <button
-                        key={server.name}
-                        onClick={() => setCurrentServer(server)}
-                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
-                            currentServer.name === server.name 
-                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
-                                : 'bg-slate-800 text-gray-400 hover:bg-slate-700 hover:text-white'
+
+            {/* Anime Sub/Dub Toggle */}
+            {isAnime && currentServer.type === 'vidsrc-cc' && (
+                <div className="flex items-center gap-2 bg-black/20 p-1 rounded-lg border border-white/5">
+                    <button 
+                        onClick={() => setAnimeType('sub')}
+                        className={`flex items-center gap-1 px-3 py-1 rounded text-xs font-bold transition-all ${
+                            animeType === 'sub' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'
                         }`}
                     >
-                        {server.name}
+                        <Captions className="h-3 w-3" /> Sub
                     </button>
-                ))}
-            </div>
+                    <button 
+                        onClick={() => setAnimeType('dub')}
+                        className={`flex items-center gap-1 px-3 py-1 rounded text-xs font-bold transition-all ${
+                            animeType === 'dub' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'
+                        }`}
+                    >
+                        <Mic className="h-3 w-3" /> Dub
+                    </button>
+                </div>
+            )}
         </div>
     </div>
   );
