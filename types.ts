@@ -80,8 +80,6 @@ export interface StoredMediaData {
   title: string;
   poster_path: string | null;
   backdrop_path: string | null;
-  original_language?: string; // Added for filtering
-  genre_ids?: number[]; // Added for filtering
   progress: {
     watched: number;
     duration: number;

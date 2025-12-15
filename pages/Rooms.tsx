@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Plus, Search, Lock, Unlock, MonitorPlay, Loader2, X, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
-import { useNavigate } from '../components/Navbar';
+import { useNavigate } from 'react-router-dom';
 import { searchContent } from '../services/api';
 import { subscribeToActiveRooms, auth } from '../services/firebase';
 import { Media, SavedRoom } from '../types';

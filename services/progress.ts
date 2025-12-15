@@ -17,9 +17,6 @@ const formatData = (data: any): StoredMediaData | null => {
         title: data.title || 'Unknown',
         poster_path: data.poster_path || null,
         backdrop_path: data.backdrop_path || null,
-        // Save additional metadata for filtering
-        original_language: data.original_language, 
-        genre_ids: data.genre_ids,
         progress: {
             watched: data.progress?.watched || 0,
             duration: data.progress?.duration || 0
@@ -31,9 +28,8 @@ const formatData = (data: any): StoredMediaData | null => {
     };
 };
 
-export const getContinueWatching = async (filter?: 'kdrama' | 'global' | 'anime'): Promise<Media[]> => {
+export const getContinueWatching = async (): Promise<Media[]> => {
   const user = await waitForAuth();
-  let allItems: Media[] = [];
 
   // 1. If Authenticated: Fetch ONLY from Firebase DB
   if (user && db) {
@@ -41,57 +37,35 @@ export const getContinueWatching = async (filter?: 'kdrama' | 'global' | 'anime'
           const snapshot = await db.ref(`users/${user.uid}/progress`).once('value');
           if (snapshot.exists()) {
             const data = snapshot.val();
-            allItems = Object.values(data)
+            const formatted = Object.values(data)
                 // @ts-ignore
                 .sort((a: any, b: any) => b.last_updated - a.last_updated)
                 .map((item: any) => ({
-                    id: item.id,
-                    title: item.title,
-                    name: item.title,
-                    poster_path: item.poster_path,
-                    backdrop_path: item.backdrop_path,
-                    overview: '',
-                    vote_average: 0,
-                    media_type: item.type,
-                    original_language: item.original_language || 'en', // Default to en if missing
-                    genre_ids: item.genre_ids || [],
-                    progress: item.progress,
-                    last_season: item.last_season_watched,
-                    last_episode: item.last_episode_watched
+                id: item.id,
+                title: item.title,
+                name: item.title,
+                poster_path: item.poster_path,
+                backdrop_path: item.backdrop_path,
+                overview: '',
+                vote_average: 0,
+                media_type: item.type,
+                original_language: 'en',
+                progress: item.progress,
+                last_season: item.last_season_watched,
+                last_episode: item.last_episode_watched
                 }));
+            return formatted;
+          } else {
+              return [];
           }
       } catch (err: any) {
           console.error("DB Fetch Error:", err.message);
+          return [];
       }
-  } else {
-    // 2. Guest Mode: Fetch ONLY from Local Storage
-    allItems = await loadFromLocal();
   }
 
-  // Filter Logic
-  if (!filter) return allItems;
-
-  return allItems.filter(item => {
-      const isAnime = item.media_type === 'anime' || item.genre_ids?.includes(16);
-      const isKorean = item.original_language === 'ko';
-
-      if (filter === 'anime') {
-          return isAnime;
-      }
-      
-      if (filter === 'kdrama') {
-          // If legacy data doesn't have language, assume it's kdrama if not anime (historical default)
-          const isLegacyDefault = !item.original_language || item.original_language === 'en'; 
-          // However, strict filtering is better now.
-          return (isKorean && !isAnime);
-      }
-
-      if (filter === 'global') {
-          return (!isKorean && !isAnime);
-      }
-
-      return true;
-  });
+  // 2. Guest Mode: Fetch ONLY from Local Storage
+  return loadFromLocal();
 };
 
 const loadFromLocal = (): Promise<Media[]> => {
@@ -114,8 +88,7 @@ const loadFromLocal = (): Promise<Media[]> => {
                     overview: '', 
                     vote_average: 0, 
                     media_type: item.type,
-                    original_language: item.original_language || 'en',
-                    genre_ids: item.genre_ids || [],
+                    original_language: 'en',
                     progress: item.progress,
                     last_season: item.last_season_watched,
                     last_episode: item.last_episode_watched

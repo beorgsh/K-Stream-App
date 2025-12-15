@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } f
 import { THEME_COLOR } from '../constants';
 import { saveProgress } from '../services/progress';
 import { Server, Mic, Captions } from 'lucide-react';
-import { fetchMediaDetails } from '../services/api';
 
 interface VideoPlayerProps {
   tmdbId: number;
@@ -45,9 +44,6 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   const durationRef = useRef(0);
   const isSyncing = useRef(false);
 
-  // Metadata for saving (Fetched once)
-  const [metaData, setMetaData] = useState<{ lang: string, genres: number[] }>({ lang: 'en', genres: [] });
-
   useImperativeHandle(ref, () => ({
     play: (time) => {
         if (!iframeRef.current) return;
@@ -78,6 +74,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     const handleFullscreenChange = async () => {
         if (document.fullscreenElement) {
             try {
+                // Attempt to lock to landscape
                 if (screen.orientation && 'lock' in screen.orientation) {
                     await (screen.orientation as any).lock('landscape');
                 }
@@ -86,6 +83,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
             }
         } else {
             try {
+                // Unlock when exiting fullscreen
                 if (screen.orientation && 'unlock' in screen.orientation) {
                     (screen.orientation as any).unlock();
                 }
@@ -94,41 +92,35 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
             }
         }
     };
+
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Fetch metadata once for progress saving context
-  useEffect(() => {
-     if (enableProgressSave) {
-         fetchMediaDetails(type, tmdbId).then(data => {
-             setMetaData({
-                 lang: data.original_language,
-                 genres: data.genres?.map(g => g.id) || []
-             });
-         }).catch(err => console.error("Failed to fetch meta for progress", err));
-     }
-  }, [tmdbId, type, enableProgressSave]);
-
   useEffect(() => {
     let url = '';
     const params = new URLSearchParams({
-      autoplay: '0', 
+      autoplay: '0', // Changed from autoPlay=false to autoplay=0 for better compatibility
       theme: THEME_COLOR,
     });
 
     if (isAnime && currentServer.type === 'vidsrc-cc') {
         const idParam = anilistId ? `ani${anilistId}` : `tmdb${tmdbId}`;
+        
+        // Specific Anime Endpoint
         url = `https://vidsrc.cc/v2/embed/anime/${idParam}/${episode}/${animeType}?autoplay=0`;
     } else if (currentServer.type === 'vidsrc-cc') {
+        // VidSrc.cc standard for non-anime
         const basePath = type === 'movie' ? '/v2/embed/movie' : `/v2/embed/tv`;
         const resourcePath = type === 'movie' ? `/${tmdbId}` : `/${tmdbId}/${season}/${episode}`;
         url = `${currentServer.url}${basePath}${resourcePath}?autoplay=0`; 
     } else if (currentServer.type === 'vidsrc-to') {
+        // VidSrc.to
         const path = type === 'movie' ? '/embed/movie' : '/embed/tv';
         const resource = type === 'movie' ? `/${tmdbId}` : `/${tmdbId}/${season}/${episode}`;
         url = `${currentServer.url}${path}${resource}`;
     } else {
+        // VidLink/Standard
         if (type === 'movie') {
             url = `${currentServer.url}/movie/${tmdbId}?${params.toString()}`;
         } else {
@@ -137,15 +129,18 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     }
     
     setSrc(url);
+    
+    // Reset refs on source change
     lastTimeRef.current = 0;
     durationRef.current = 0;
   }, [tmdbId, type, season, episode, currentServer, isAnime, animeType, anilistId]);
 
-  // Handle messages from embeds
+  // Handle messages from embeds (if supported)
   useEffect(() => {
     const handleMessage = ({ origin, data }: MessageEvent) => {
         if (!data) return;
 
+        // Progress Saving Logic (Best Effort)
         if (data.type === 'PLAYER_EVENT' || (data.data && data.data.currentTime)) {
             const currentTime = data.data?.currentTime || data.currentTime;
             const duration = data.data?.duration || data.duration;
@@ -160,8 +155,6 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
                     title: mediaTitle || 'Unknown',
                     poster_path: posterPath,
                     backdrop_path: backdropPath,
-                    original_language: metaData.lang, // Save for filtering
-                    genre_ids: metaData.genres, // Save for filtering
                     last_season_watched: season,
                     last_episode_watched: episode,
                     progress: {
@@ -176,7 +169,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [enableProgressSave, tmdbId, type, season, episode, mediaTitle, posterPath, backdropPath, metaData]);
+  }, [enableProgressSave, tmdbId, type, season, episode, mediaTitle, posterPath, backdropPath]);
 
   return (
     <div className="space-y-3">

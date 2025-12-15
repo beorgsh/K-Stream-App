@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from '../components/Navbar';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { fetchAnimeDetails, fetchAnimeEpisodes, fetchAnimeSources, fetchAnimeServers } from '../services/anime';
 import { MediaDetails, AnimeEpisode } from '../types';
 import AnimePlayer from '../components/AnimePlayer';

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Star, Play, Clock } from 'lucide-react';
-import { Link, useLocation } from './Navbar';
+import { Link } from 'react-router-dom';
 import { Media } from '../types';
 import { IMAGE_BASE_URL, POSTER_SIZE } from '../constants';
 
@@ -9,9 +9,6 @@ interface MediaCardProps {
 }
 
 const MediaCard: React.FC<MediaCardProps> = ({ media }) => {
-  const location = useLocation();
-  const isGlobal = location.pathname.startsWith('/global');
-
   const title = media.title || media.name || 'Unknown';
   const year = (media.release_date || media.first_air_date || '').split('-')[0];
   const rating = media.vote_average ? media.vote_average.toFixed(1) : 'N/A';
@@ -42,13 +39,9 @@ const MediaCard: React.FC<MediaCardProps> = ({ media }) => {
   const isAnime = media.media_type === 'anime' || (media.genre_ids?.includes(16) && media.original_language === 'ja');
 
   // Standard route
-  let linkPath = `/watch/${media.media_type}/${media.id}`;
-  
-  if (isAnime) {
-      linkPath = `/anime/watch/${media.media_type}/${media.id}`;
-  } else if (isGlobal) {
-      linkPath = `/global/watch/${media.media_type}/${media.id}`;
-  }
+  const linkPath = isAnime 
+    ? `/anime/watch/${media.media_type}/${media.id}` 
+    : `/watch/${media.media_type}/${media.id}`;
 
   return (
     <Link to={linkPath} className="group/card relative block w-full flex-shrink-0 cursor-pointer">

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Play, Info } from 'lucide-react';
 import { Media } from '../types';
 import { IMAGE_BASE_URL, BACKDROP_SIZE } from '../constants';
-import { Link, useLocation } from './Navbar';
+import { Link } from 'react-router-dom';
 
 interface HeroProps {
   items: Media[];
@@ -11,8 +11,6 @@ interface HeroProps {
 const Hero: React.FC<HeroProps> = ({ items }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const location = useLocation();
-  const isGlobal = location.pathname.startsWith('/global');
   
   // Touch state for swipe
   const [touchStart, setTouchStart] = useState<number | null>(null);
@@ -101,16 +99,13 @@ const Hero: React.FC<HeroProps> = ({ items }) => {
         // Detect Anime: Media type 'anime' OR (Genre 16 + Language 'ja')
         const isAnime = media.media_type === 'anime' || (media.genre_ids?.includes(16) && media.original_language === 'ja');
         
-        let watchLink = `/watch/${media.media_type}/${media.id}`;
-        let infoLink = `/watch/${media.media_type}/${media.id}?tab=info`;
-        
-        if (isAnime) {
-             watchLink = `/anime/watch/${media.media_type}/${media.id}`;
-             infoLink = `/anime/watch/${media.media_type}/${media.id}?tab=info`;
-        } else if (isGlobal) {
-             watchLink = `/global/watch/${media.media_type}/${media.id}`;
-             infoLink = `/global/watch/${media.media_type}/${media.id}?tab=info`;
-        }
+        const watchLink = isAnime 
+            ? `/anime/watch/${media.media_type}/${media.id}` 
+            : `/watch/${media.media_type}/${media.id}`;
+            
+        const infoLink = isAnime 
+            ? `/anime/watch/${media.media_type}/${media.id}?tab=info`
+            : `/watch/${media.media_type}/${media.id}?tab=info`;
 
         return (
           <div

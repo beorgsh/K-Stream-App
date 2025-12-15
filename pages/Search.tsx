@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { useSearchParams, useLocation, useNavigate } from '../components/Navbar';
+import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import { searchContent } from '../services/api';
-import { searchAnilistMedia } from '../services/anilist';
+import { searchAnime } from '../services/anime';
 import { Media } from '../types';
 import MediaCard from '../components/MediaCard';
 import { GridSkeleton } from '../components/Skeleton';
@@ -38,7 +38,7 @@ const SearchPage: React.FC = () => {
         
         if (isAnime) {
              const [animeData] = await Promise.all([
-                 searchAnilistMedia(query),
+                 searchAnime(query),
                  wait
              ]);
              data = animeData;
@@ -87,7 +87,7 @@ const SearchPage: React.FC = () => {
                 type="text" 
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder={isAnime ? "Search Anime (AniList)..." : (isGlobal ? "Search for movies & TV shows..." : "Search for Asian Dramas, Anime & Movies...")}
+                placeholder={isAnime ? "Search Anime..." : (isGlobal ? "Search for movies & TV shows..." : "Search for Asian Dramas, Anime & Movies...")}
                 className="w-full bg-slate-900 border border-white/10 rounded-2xl py-4 pl-14 pr-12 text-white text-lg placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent shadow-xl transition-all"
                 autoFocus
             />

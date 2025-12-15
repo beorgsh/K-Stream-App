@@ -1,5 +1,5 @@
 import React from 'react';
-import { HashRouter, Routes, Route } from './components/Navbar';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import GlobalHome from './pages/GlobalHome';
@@ -49,13 +49,10 @@ const App: React.FC = () => {
             <Route path="/rooms" element={<LayoutWithNavbar><Rooms /></LayoutWithNavbar>} />
             <Route path="/login" element={<LayoutWithNavbar><Auth /></LayoutWithNavbar>} />
             
-            {/* Standard Watch Route (K-Drama Default) */}
+            {/* Standard Watch Route covers Movies and TV */}
             <Route path="/watch/:type/:id" element={<LayoutWithNavbar><Watch /></LayoutWithNavbar>} />
-
-            {/* Global Watch Route (Uses same component, keeps 'Global' header active) */}
-            <Route path="/global/watch/:type/:id" element={<LayoutWithNavbar><Watch /></LayoutWithNavbar>} />
             
-            {/* Dedicated Anime Watch Route */}
+            {/* Dedicated Anime Watch Route (Uses same component but different path for Navbar logic) */}
             <Route path="/anime/watch/:type/:id" element={<LayoutWithNavbar><Watch /></LayoutWithNavbar>} />
 
             {/* Watch Party Route (No Navbar/Footer) */}

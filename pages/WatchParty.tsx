@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams, useNavigate } from '../components/Navbar';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import Peer from 'peerjs';
 import { Loader2, LogOut, Users, MessageSquare, List, RefreshCw, AlertTriangle, Play, Wifi, WifiOff, Maximize, Minimize, MessageSquareOff } from 'lucide-react';
 import VideoPlayer, { VideoPlayerRef } from '../components/VideoPlayer';

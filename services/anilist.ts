@@ -1,5 +1,3 @@
-import { Media } from '../types';
-
 const ANILIST_API_URL = 'https://graphql.anilist.co';
 
 export const fetchAnilistImage = async (tmdbId: number): Promise<string | null> => {
@@ -109,73 +107,5 @@ export const fetchAnilistMetadata = async (tmdbId: number) => {
     } catch (error) {
         console.error("Anilist Metadata fetch error:", error);
         return null;
-    }
-};
-
-export const searchAnilistMedia = async (query: string): Promise<Media[]> => {
-    const graphqlQuery = `
-    query ($search: String) {
-      Page(page: 1, perPage: 20) {
-        media(search: $search, type: ANIME, sort: POPULARITY_DESC) {
-          id
-          idTmdb
-          title {
-            romaji
-            english
-            native
-          }
-          coverImage {
-            extraLarge
-            large
-          }
-          bannerImage
-          description
-          averageScore
-          startDate {
-            year
-            month
-            day
-          }
-          format
-          genres
-        }
-      }
-    }
-    `;
-
-    try {
-        const response = await fetch(ANILIST_API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-            },
-            body: JSON.stringify({
-                query: graphqlQuery,
-                variables: { search: query }
-            })
-        });
-
-        const data = await response.json();
-        const results = data?.data?.Page?.media || [];
-        
-        return results
-            .filter((item: any) => item.idTmdb) // Must have TMDB ID for app compatibility
-            .map((item: any) => ({
-                id: item.idTmdb,
-                title: item.title.english || item.title.romaji || item.title.native,
-                name: item.title.english || item.title.romaji || item.title.native,
-                poster_path: item.coverImage.extraLarge || item.coverImage.large,
-                backdrop_path: item.bannerImage || item.coverImage.extraLarge,
-                overview: item.description ? item.description.replace(/<[^>]*>?/gm, '') : '',
-                vote_average: item.averageScore ? item.averageScore / 10 : 0,
-                media_type: item.format === 'MOVIE' ? 'movie' : 'tv',
-                original_language: 'ja',
-                genre_ids: [16], // Animation
-                release_date: item.startDate.year ? `${item.startDate.year}-${String(item.startDate.month).padStart(2, '0')}-${String(item.startDate.day).padStart(2, '0')}` : undefined,
-            }));
-    } catch (error) {
-        console.error("Anilist Search Error:", error);
-        return [];
     }
 };

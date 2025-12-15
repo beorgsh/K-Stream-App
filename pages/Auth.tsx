@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { auth } from '../services/firebase';
-import { useNavigate } from '../components/Navbar';
+import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, User, ShieldCheck, Loader2 } from 'lucide-react';
 import Toast from '../components/Toast';
 

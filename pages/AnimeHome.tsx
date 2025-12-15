@@ -3,17 +3,14 @@ import Hero from '../components/Hero';
 import MediaRow from '../components/MediaRow';
 import { HomeSkeleton } from '../components/Skeleton';
 import { fetchAnimeTrending, fetchAnimeMovies, fetchAnimeTopRated } from '../services/api';
-import { getContinueWatching } from '../services/progress';
-import { auth } from '../services/firebase';
 import { Media } from '../types';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
-import { useNavigate } from '../components/Navbar';
+import { useNavigate } from 'react-router-dom';
 
 const AnimeHome: React.FC = () => {
   const [trending, setTrending] = useState<Media[]>([]);
   const [movies, setMovies] = useState<Media[]>([]);
   const [topRated, setTopRated] = useState<Media[]>([]);
-  const [continueWatching, setContinueWatching] = useState<Media[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   
@@ -47,15 +44,6 @@ const AnimeHome: React.FC = () => {
     loadContent();
   }, []);
 
-  // Load User Specific Progress for Anime
-  useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (user) => {
-        const progressData = await getContinueWatching('anime');
-        setContinueWatching(progressData);
-    });
-    return () => unsubscribe();
-  }, []);
-
   if (loading) {
     return <HomeSkeleton />;
   }
@@ -86,9 +74,6 @@ const AnimeHome: React.FC = () => {
     <div className="bg-slate-950 min-h-screen pb-20 animate-fade-in">
       <Hero items={heroItems} />
       <div className="-mt-32 relative z-20">
-        {continueWatching.length > 0 && (
-          <MediaRow title="Continue Watching" items={continueWatching.slice(0, 10)} />
-        )}
         <MediaRow title="Trending Anime Series" items={trending} />
         <MediaRow title="Popular Anime Movies" items={movies} />
         <MediaRow title="All Time Favorites" items={topRated} />

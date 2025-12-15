@@ -1,109 +1,8 @@
-import React, { useState, useEffect, useRef, createContext, useContext, ReactNode } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Search, MonitorPlay, Users, User, LogOut, Edit2, Clapperboard, ChevronDown, LogIn, RefreshCw, Loader2 } from 'lucide-react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { auth, logoutUser, updateUserPassword } from '../services/firebase';
 import Toast from './Toast';
-
-// --- CUSTOM ROUTER IMPLEMENTATION ---
-const RouterContext = createContext<{ path: string; queryString: string; navigate: (to: string) => void }>({ path: '/', queryString: '', navigate: () => {} });
-const ParamsContext = createContext<Record<string, string>>({});
-
-export const HashRouter = ({ children }: { children: ReactNode }) => {
-    const [route, setRoute] = useState(() => {
-        const hash = window.location.hash.slice(1);
-        const [path, qs] = hash.split('?');
-        return { path: path || '/', queryString: qs || '' };
-    });
-
-    useEffect(() => {
-        const handler = () => {
-            const hash = window.location.hash.slice(1);
-            const [path, qs] = hash.split('?');
-            setRoute({ path: path || '/', queryString: qs || '' });
-        };
-        window.addEventListener('hashchange', handler);
-        return () => window.removeEventListener('hashchange', handler);
-    }, []);
-
-    const navigate = (to: string) => {
-        window.location.hash = to;
-    };
-
-    return (
-        <RouterContext.Provider value={{ path: route.path, queryString: route.queryString, navigate }}>
-            {children}
-        </RouterContext.Provider>
-    );
-};
-
-export const Routes = ({ children }: { children: ReactNode }) => {
-    const { path } = useContext(RouterContext);
-    const routes = React.Children.toArray(children);
-    
-    for (const child of routes) {
-        if (!React.isValidElement(child)) continue;
-        const { path: pattern, element } = child.props as { path: string, element: ReactNode };
-        
-        if (pattern === '*') return <ParamsContext.Provider value={{}}>{element}</ParamsContext.Provider>;
-        
-        const patternParts = pattern.split('/').filter(Boolean);
-        const pathParts = path.split('/').filter(Boolean);
-        
-        if (patternParts.length === pathParts.length) {
-            const params: Record<string, string> = {};
-            let match = true;
-            for (let i = 0; i < patternParts.length; i++) {
-                if (patternParts[i].startsWith(':')) {
-                    params[patternParts[i].slice(1)] = pathParts[i];
-                } else if (patternParts[i] !== pathParts[i]) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                return <ParamsContext.Provider value={params}>{element}</ParamsContext.Provider>;
-            }
-        }
-    }
-    return null;
-};
-
-export const Route = (props: { path: string; element: ReactNode }) => null;
-
-export const Link = ({ to, children, className, title, onClick }: any) => {
-    return (
-        <a 
-            href={`#${to}`} 
-            className={className} 
-            title={title}
-            onClick={(e) => {
-                if (onClick) onClick(e);
-            }}
-        >
-            {children}
-        </a>
-    );
-};
-
-export const useNavigate = () => {
-    const { navigate } = useContext(RouterContext);
-    return navigate;
-};
-
-export const useLocation = () => {
-    const { path, queryString } = useContext(RouterContext);
-    return { pathname: path, search: queryString ? `?${queryString}` : '' };
-};
-
-export const useParams = <T extends Record<string, string> = Record<string, string>>(): T => {
-    return useContext(ParamsContext) as T;
-};
-
-export const useSearchParams = () => {
-    const { queryString } = useContext(RouterContext);
-    const params = new URLSearchParams(queryString);
-    return [params];
-};
-// --- END CUSTOM ROUTER ---
 
 const Navbar: React.FC = () => {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -279,12 +178,6 @@ const Navbar: React.FC = () => {
       if (activeSection === 'global') return "/global/search";
       return "/search";
   };
-  
-  const getHomeLink = () => {
-      if (activeSection === 'anime') return '/anime';
-      if (activeSection === 'global') return '/global';
-      return '/';
-  };
 
   return (
     <>
@@ -302,7 +195,7 @@ const Navbar: React.FC = () => {
           
           {/* LEFT: Logo & Dynamic Mode Switcher */}
           <div className="flex items-center gap-6 md:gap-8">
-            <Link to={getHomeLink()} className="flex items-center gap-2 group flex-shrink-0">
+            <Link to="/" className="flex items-center gap-2 group flex-shrink-0">
               <MonitorPlay className="h-7 w-7 text-indigo-500 group-hover:text-indigo-400 transition-colors" />
               <span className="text-lg md:text-xl font-bold tracking-tight text-white group-hover:text-gray-200 transition-colors">
                 {getBrandTitle()}

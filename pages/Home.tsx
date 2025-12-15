@@ -63,8 +63,7 @@ const Home: React.FC = () => {
   // Load User Specific Progress
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
-        // Pass 'kdrama' filter to only show K-Content
-        const progressData = await getContinueWatching('kdrama');
+        const progressData = await getContinueWatching();
         setContinueWatching(progressData);
     });
 
