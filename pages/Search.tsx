@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import { searchContent } from '../services/api';
-import { searchAnime } from '../services/anime';
 import { Media } from '../types';
 import MediaCard from '../components/MediaCard';
 import { GridSkeleton } from '../components/Skeleton';
@@ -34,23 +33,14 @@ const SearchPage: React.FC = () => {
       setLoading(true);
       try {
         const wait = new Promise(r => setTimeout(r, 800));
-        let data: Media[] = [];
         
-        if (isAnime) {
-             const [animeData] = await Promise.all([
-                 searchAnime(query),
-                 wait
-             ]);
-             data = animeData;
-        } else {
-             const [tmdbData] = await Promise.all([
-                searchContent(query, isGlobal),
-                wait
-            ]);
-            data = tmdbData;
-        }
+        // Unified search using TMDB
+        const [tmdbData] = await Promise.all([
+            searchContent(query, isGlobal, isAnime),
+            wait
+        ]);
         
-        setResults(data);
+        setResults(tmdbData);
       } catch (error) {
         console.error("Search failed", error);
       } finally {
@@ -87,7 +77,7 @@ const SearchPage: React.FC = () => {
                 type="text" 
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder={isAnime ? "Search Anime..." : (isGlobal ? "Search for movies & TV shows..." : "Search for Asian Dramas, Anime & Movies...")}
+                placeholder={isAnime ? "Search Anime (TMDB)..." : (isGlobal ? "Search for movies & TV shows..." : "Search for Asian Dramas, Anime & Movies...")}
                 className="w-full bg-slate-900 border border-white/10 rounded-2xl py-4 pl-14 pr-12 text-white text-lg placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent shadow-xl transition-all"
                 autoFocus
             />

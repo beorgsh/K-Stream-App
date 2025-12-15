@@ -1,13 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { fetchMediaDetails } from '../services/api';
-import { fetchAnilistMetadata, fetchAnilistId } from '../services/anilist';
 import { MediaDetails } from '../types';
 import VideoPlayer, { VideoPlayerRef } from '../components/VideoPlayer';
 import SeasonSelector from '../components/SeasonSelector';
 import MediaCard from '../components/MediaCard';
 import { WatchSkeleton } from '../components/Skeleton';
-import { AlertCircle, List, Info, Grid, Star, Clock, Users, Calendar, Volume2 } from 'lucide-react';
+import { AlertCircle, List, Info, Star, Calendar, Volume2 } from 'lucide-react';
 import { auth } from '../services/firebase';
 import { IMAGE_BASE_URL } from '../constants';
 
@@ -17,8 +16,6 @@ const Watch: React.FC = () => {
   const navigate = useNavigate();
 
   const [details, setDetails] = useState<MediaDetails | null>(null);
-  // Separate AniList ID state to pass to player
-  const [anilistId, setAnilistId] = useState<number | null>(null);
   
   const [season, setSeason] = useState(1);
   const [episode, setEpisode] = useState(1);
@@ -55,63 +52,18 @@ const Watch: React.FC = () => {
       try {
         const wait = new Promise(r => setTimeout(r, 800));
         
-        // Fetch TMDB Details first (needed for ID, Seasaons structure, etc)
+        // Fetch TMDB Details
         const [tmdbData] = await Promise.all([
            fetchMediaDetails(type as 'movie' | 'tv', Number(id)),
            wait
         ]);
 
-        let finalDetails = { ...tmdbData };
-
-        // Check if Anime (Animation Genre ID 16 + Japanese Language)
-        const isAnimeCheck = tmdbData.genres?.some(g => g.id === 16) && tmdbData.original_language === 'ja';
-        
-        if (isAnimeCheck) {
-            // Fetch Metadata from AniList to override TMDB
-            const aniMetadata = await fetchAnilistMetadata(Number(id));
-            
-            if (aniMetadata) {
-                setAnilistId(aniMetadata.id);
-                
-                // Override details with AniList data
-                finalDetails.title = aniMetadata.title?.english || aniMetadata.title?.romaji || tmdbData.title;
-                finalDetails.name = finalDetails.title; // for TV
-                
-                // Clean description (remove html tags)
-                if (aniMetadata.description) {
-                    finalDetails.overview = aniMetadata.description.replace(/<[^>]*>?/gm, '');
-                }
-                
-                // Images
-                if (aniMetadata.coverImage?.extraLarge) {
-                    finalDetails.poster_path = aniMetadata.coverImage.extraLarge; // Will be full URL
-                }
-                if (aniMetadata.bannerImage) {
-                    finalDetails.backdrop_path = aniMetadata.bannerImage; // Will be full URL
-                }
-                
-                // Rating
-                if (aniMetadata.averageScore) {
-                   finalDetails.vote_average = aniMetadata.averageScore / 10;
-                }
-                
-                // Status
-                if (aniMetadata.status) {
-                    finalDetails.status = aniMetadata.status;
-                }
-            } else {
-                // Fallback if metadata fails but we need ID
-                const aId = await fetchAnilistId(Number(id));
-                setAnilistId(aId);
-            }
-        }
-        
-        setDetails(finalDetails);
+        setDetails(tmdbData);
         
         const tabParam = searchParams.get('tab');
         if (tabParam === 'info') {
             setActiveTab('info');
-        } else if (finalDetails.media_type === 'movie') {
+        } else if (tmdbData.media_type === 'movie') {
             setActiveTab('info');
         } else {
             setActiveTab('episodes');
@@ -151,7 +103,6 @@ const Watch: React.FC = () => {
   const recommendations = details.similar?.results || details.recommendations?.results || [];
   const isAnime = details.genres?.some(g => g.id === 16) && details.original_language === 'ja';
 
-  // Helper for images (AniList gives full URL, TMDB gives path)
   const getPoster = (path: string | null) => {
       if (!path) return '';
       return path.startsWith('http') ? path : `${IMAGE_BASE_URL}/w300${path}`;
@@ -166,7 +117,7 @@ const Watch: React.FC = () => {
         <div className={`xl:col-span-3 space-y-4`}>
           <VideoPlayer 
             ref={playerRef}
-            tmdbId={Number(id)} // Keep TMDB ID for tracking/compatibility
+            tmdbId={Number(id)}
             type={details.media_type as 'movie' | 'tv'} 
             season={season}
             episode={episode}
@@ -174,7 +125,6 @@ const Watch: React.FC = () => {
             posterPath={details.poster_path}
             backdropPath={details.backdrop_path}
             isAnime={isAnime}
-            anilistId={anilistId}
           />
           
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/50 backdrop-blur-md p-4 rounded-xl border border-white/10">

@@ -123,7 +123,7 @@ export const fetchSeasonDetails = async (tvId: number, seasonNumber: number): Pr
 };
 
 // Search
-export const searchContent = async (query: string, isGlobal: boolean = false): Promise<Media[]> => {
+export const searchContent = async (query: string, isGlobal: boolean = false, isAnime: boolean = false): Promise<Media[]> => {
   const response = await fetchFromTMDB<TMDBResponse<Media>>('/search/multi', {
     query,
     include_adult: 'false',
@@ -133,6 +133,11 @@ export const searchContent = async (query: string, isGlobal: boolean = false): P
   const results = response.results.filter(item => {
       // Must be movie or tv
       if (item.media_type !== 'tv' && item.media_type !== 'movie') return false;
+      
+      if (isAnime) {
+          // Anime logic: Japanese + Animation genre (16)
+          return item.original_language === 'ja' && item.genre_ids?.includes(16);
+      }
       
       // If not global, strict Korean filter
       if (!isGlobal) {
