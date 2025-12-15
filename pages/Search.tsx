@@ -4,7 +4,7 @@ import { searchContent } from '../services/api';
 import { Media } from '../types';
 import MediaCard from '../components/MediaCard';
 import { GridSkeleton } from '../components/Skeleton';
-import { Search as SearchIcon, X } from 'lucide-react';
+import { Search as SearchIcon, X, Loader2 } from 'lucide-react';
 
 const SearchPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -18,12 +18,33 @@ const SearchPage: React.FC = () => {
   const isGlobal = location.pathname.includes('/global');
   const isAnime = location.pathname.includes('/anime');
 
-  // Update input when URL query changes
+  // Sync input with URL query if URL changes externally
   useEffect(() => {
-    setInputValue(query);
+    if (query !== inputValue) {
+      setInputValue(query);
+    }
   }, [query]);
 
-  // Perform search
+  // Realtime Search Debounce
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      // Only navigate if the input is different from the current URL query
+      if (inputValue !== query) {
+        const searchPath = isAnime ? '/anime/search' : (isGlobal ? '/global/search' : '/search');
+        if (inputValue.trim()) {
+            navigate(`${searchPath}?q=${encodeURIComponent(inputValue)}`, { replace: true });
+        } else {
+            navigate(searchPath, { replace: true });
+        }
+      }
+    }, 500); // Wait 500ms after user stops typing
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [inputValue, navigate, isAnime, isGlobal, query]);
+
+  // Perform search based on URL Query
   useEffect(() => {
     const doSearch = async () => {
       if (!query.trim()) {
@@ -32,14 +53,8 @@ const SearchPage: React.FC = () => {
       }
       setLoading(true);
       try {
-        const wait = new Promise(r => setTimeout(r, 800));
-        
         // Unified search using TMDB
-        const [tmdbData] = await Promise.all([
-            searchContent(query, isGlobal, isAnime),
-            wait
-        ]);
-        
+        const tmdbData = await searchContent(query, isGlobal, isAnime);
         setResults(tmdbData);
       } catch (error) {
         console.error("Search failed", error);
@@ -52,6 +67,7 @@ const SearchPage: React.FC = () => {
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Force immediate search (cancel debounce if user hits enter)
     if (inputValue.trim()) {
         const searchPath = isAnime ? '/anime/search' : (isGlobal ? '/global/search' : '/search');
         navigate(`${searchPath}?q=${encodeURIComponent(inputValue)}`);
@@ -89,7 +105,7 @@ const SearchPage: React.FC = () => {
                     onClick={clearSearch}
                     className="absolute right-4 top-1/2 -translate-y-1/2 p-1 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors"
                 >
-                    <X className="h-5 w-5" />
+                    {loading ? <Loader2 className="h-5 w-5 animate-spin text-indigo-500" /> : <X className="h-5 w-5" />}
                 </button>
             )}
         </form>

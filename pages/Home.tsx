@@ -29,6 +29,8 @@ const Home: React.FC = () => {
   const HISTORY_PAGE_SIZE = 10;
   const historyObserverTarget = useRef<HTMLDivElement>(null);
 
+  const ASIAN_LANGUAGES = ['ko', 'ja', 'zh', 'cn', 'tw', 'th', 'vi', 'tl', 'id', 'ms'];
+
   // Load General Content (Strictly Korean)
   useEffect(() => {
     const loadContent = async () => {
@@ -64,7 +66,19 @@ const Home: React.FC = () => {
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
         const progressData = await getContinueWatching();
-        setContinueWatching(progressData);
+        // Filter: Not Anime AND (Is Asian Language OR Language Missing/Default)
+        const asianContent = progressData.filter(item => {
+            const isAnime = item.media_type === 'anime' || item.genre_ids?.includes(16);
+            const lang = item.original_language;
+            
+            // Asian Logic:
+            // 1. Language is in ASIAN_LANGUAGES
+            // 2. OR Language is undefined (Legacy K-Stream data)
+            const isAsian = !lang || ASIAN_LANGUAGES.includes(lang);
+            
+            return !isAnime && isAsian;
+        });
+        setContinueWatching(asianContent);
     });
 
     return () => unsubscribe();

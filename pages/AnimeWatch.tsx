@@ -6,6 +6,7 @@ import AnimePlayer from '../components/AnimePlayer';
 import { WatchSkeleton } from '../components/Skeleton';
 import { AlertCircle, ChevronLeft, Info, List, Server, Settings, RefreshCw, Volume2, Mic } from 'lucide-react';
 import { auth } from '../services/firebase';
+import { saveProgress } from '../services/progress';
 
 const AnimeWatch: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -175,6 +176,28 @@ const AnimeWatch: React.FC = () => {
       }
   };
 
+  const handleProgress = (currentTime: number, duration: number) => {
+     if (!details || !currentEpisodeId) return;
+     
+     const currentEp = episodes.find(e => e.episodeId === currentEpisodeId);
+     
+     saveProgress({
+         id: details.id,
+         type: 'anime', // Explicitly anime
+         title: details.title || details.name,
+         poster_path: details.poster_path,
+         backdrop_path: details.backdrop_path,
+         isAnime: true,
+         original_language: 'ja',
+         last_season_watched: 1,
+         last_episode_watched: currentEp ? currentEp.number : 1,
+         progress: {
+             watched: currentTime,
+             duration: duration
+         }
+     });
+  };
+
   const reloadServers = async () => {
       if(currentEpisodeId) handleEpisodeSelect(currentEpisodeId);
   }
@@ -223,6 +246,7 @@ const AnimeWatch: React.FC = () => {
                 poster={details.poster_path || undefined} 
                 subtitles={subtitles}
                 headers={headers}
+                onProgress={handleProgress}
              />
           ) : (
              <div className="w-full aspect-video bg-slate-900 rounded-xl flex items-center justify-center border border-slate-800 flex-col gap-2">

@@ -8,6 +8,7 @@ interface AnimePlayerProps {
     intro?: { start: number; end: number };
     outro?: { start: number; end: number };
     headers?: Record<string, string>;
+    onProgress?: (currentTime: number, duration: number) => void;
 }
 
 export interface AnimePlayerRef {
@@ -17,7 +18,7 @@ export interface AnimePlayerRef {
     getInstance: () => any;
 }
 
-const AnimePlayer = forwardRef<AnimePlayerRef, AnimePlayerProps>(({ src, poster, subtitles, intro, outro, headers }, ref) => {
+const AnimePlayer = forwardRef<AnimePlayerRef, AnimePlayerProps>(({ src, poster, subtitles, intro, outro, headers, onProgress }, ref) => {
     const artRef = useRef<HTMLDivElement>(null);
     const playerInstance = useRef<any>(null);
 
@@ -122,6 +123,40 @@ const AnimePlayer = forwardRef<AnimePlayerRef, AnimePlayerProps>(({ src, poster,
                     }
                 },
             },
+        });
+
+        // Add Auto-Rotate for Mobile Fullscreen
+        art.on('fullscreen', (state: boolean) => {
+            if (state) {
+                try {
+                    if (screen.orientation && 'lock' in screen.orientation) {
+                        (screen.orientation as any).lock('landscape').catch((e: any) => console.debug("Lock failed", e));
+                    } else if ('lockOrientation' in screen) {
+                         // @ts-ignore
+                         screen.lockOrientation('landscape');
+                    }
+                } catch (error) {
+                    console.debug("Orientation lock failed:", error);
+                }
+            } else {
+                try {
+                    if (screen.orientation && 'unlock' in screen.orientation) {
+                        (screen.orientation as any).unlock();
+                    } else if ('unlockOrientation' in screen) {
+                        // @ts-ignore
+                        screen.unlockOrientation();
+                    }
+                } catch (error) {
+                    console.debug("Orientation unlock failed:", error);
+                }
+            }
+        });
+
+        // Progress Tracking
+        art.on('video:timeupdate', () => {
+            if (onProgress && art.video) {
+                onProgress(art.video.currentTime, art.video.duration);
+            }
         });
 
         playerInstance.current = art;

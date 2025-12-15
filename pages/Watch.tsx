@@ -125,6 +125,7 @@ const Watch: React.FC = () => {
             posterPath={details.poster_path}
             backdropPath={details.backdrop_path}
             isAnime={isAnime}
+            originalLanguage={details.original_language}
           />
           
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/50 backdrop-blur-md p-4 rounded-xl border border-white/10">

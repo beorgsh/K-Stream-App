@@ -88,6 +88,9 @@ export interface StoredMediaData {
   last_episode_watched?: number;
   last_updated: number;
   show_progress?: Record<string, any>;
+  // New Metadata for Filtering
+  original_language?: string;
+  isAnime?: boolean;
 }
 
 export interface ChatMessage {

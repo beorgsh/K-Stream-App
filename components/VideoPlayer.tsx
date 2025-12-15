@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import { THEME_COLOR } from '../constants';
-import { saveProgress } from '../services/progress';
+import { saveProgress, getMediaProgress } from '../services/progress';
 import { Server, Mic, Captions } from 'lucide-react';
 
 interface VideoPlayerProps {
@@ -16,6 +16,7 @@ interface VideoPlayerProps {
   enableProgressSave?: boolean;
   isAnime?: boolean;
   anilistId?: number | null;
+  originalLanguage?: string;
 }
 
 export interface VideoPlayerRef {
@@ -32,7 +33,7 @@ const SERVERS = [
 ];
 
 const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ 
-  tmdbId, type, season = 1, episode = 1, mediaTitle, posterPath, backdropPath, onPlayerEvent, isHost = true, enableProgressSave = true, isAnime = false, anilistId
+  tmdbId, type, season = 1, episode = 1, mediaTitle, posterPath, backdropPath, onPlayerEvent, isHost = true, enableProgressSave = true, isAnime = false, anilistId, originalLanguage
 }, ref) => {
   const [src, setSrc] = useState('');
   const [currentServer, setCurrentServer] = useState(SERVERS[0]);
@@ -43,6 +44,10 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   const lastTimeRef = useRef(0);
   const durationRef = useRef(0);
   const isSyncing = useRef(false);
+  
+  // Auto-resume state
+  const [startTime, setStartTime] = useState(0);
+  const hasResumedRef = useRef(false);
 
   useImperativeHandle(ref, () => ({
     play: (time) => {
@@ -71,51 +76,80 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
 
   // Handle Auto-Landscape on Fullscreen
   useEffect(() => {
-    const handleFullscreenChange = async () => {
-        if (document.fullscreenElement) {
+    const lockOrientation = async () => {
+        if (screen.orientation && 'lock' in screen.orientation) {
             try {
-                // Attempt to lock to landscape
-                if (screen.orientation && 'lock' in screen.orientation) {
-                    await (screen.orientation as any).lock('landscape');
-                }
-            } catch (error) {
-                console.debug("Orientation lock failed:", error);
-            }
-        } else {
-            try {
-                // Unlock when exiting fullscreen
-                if (screen.orientation && 'unlock' in screen.orientation) {
-                    (screen.orientation as any).unlock();
-                }
-            } catch (error) {
-                console.debug("Orientation unlock failed:", error);
+                await (screen.orientation as any).lock('landscape');
+            } catch (e) {
+                console.debug("Orientation lock failed (likely not supported on this device/browser):", e);
             }
         }
     };
 
+    const unlockOrientation = () => {
+        if (screen.orientation && 'unlock' in screen.orientation) {
+            try {
+                (screen.orientation as any).unlock();
+            } catch (e) {
+                console.debug("Orientation unlock failed:", e);
+            }
+        }
+    };
+
+    const handleFullscreenChange = () => {
+        const isFullscreen = document.fullscreenElement || (document as any).webkitFullscreenElement;
+        if (isFullscreen) {
+            lockOrientation();
+        } else {
+            unlockOrientation();
+        }
+    };
+
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange); // Safari/Old Chrome
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange); // Firefox
+    
+    return () => {
+        document.removeEventListener('fullscreenchange', handleFullscreenChange);
+        document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+    }
   }, []);
+
+  // Fetch saved progress for auto-resume
+  useEffect(() => {
+    if (!enableProgressSave) return;
+    
+    const fetchSavedProgress = async () => {
+        hasResumedRef.current = false; // Reset resume flag on episode change
+        const savedTime = await getMediaProgress(tmdbId, type, season, episode);
+        if (savedTime > 0) {
+            console.log(`Found saved progress: ${savedTime}s`);
+            setStartTime(savedTime);
+        } else {
+            setStartTime(0);
+        }
+    };
+
+    fetchSavedProgress();
+  }, [tmdbId, type, season, episode, enableProgressSave]);
 
   useEffect(() => {
     let url = '';
     const params = new URLSearchParams({
-      autoplay: '0', // Changed from autoPlay=false to autoplay=0 for better compatibility
+      autoplay: '0', 
       theme: THEME_COLOR,
     });
 
     if (isAnime && currentServer.type === 'vidsrc-cc') {
         const idParam = anilistId ? `ani${anilistId}` : `tmdb${tmdbId}`;
-        
         // Specific Anime Endpoint
         url = `https://vidsrc.cc/v2/embed/anime/${idParam}/${episode}/${animeType}?autoplay=0`;
     } else if (currentServer.type === 'vidsrc-cc') {
-        // VidSrc.cc standard for non-anime
         const basePath = type === 'movie' ? '/v2/embed/movie' : `/v2/embed/tv`;
         const resourcePath = type === 'movie' ? `/${tmdbId}` : `/${tmdbId}/${season}/${episode}`;
         url = `${currentServer.url}${basePath}${resourcePath}?autoplay=0`; 
     } else if (currentServer.type === 'vidsrc-to') {
-        // VidSrc.to
         const path = type === 'movie' ? '/embed/movie' : '/embed/tv';
         const resource = type === 'movie' ? `/${tmdbId}` : `/${tmdbId}/${season}/${episode}`;
         url = `${currentServer.url}${path}${resource}`;
@@ -135,17 +169,81 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     durationRef.current = 0;
   }, [tmdbId, type, season, episode, currentServer, isAnime, animeType, anilistId]);
 
-  // Handle messages from embeds (if supported)
+  // Handle messages from embeds
   useEffect(() => {
     const handleMessage = ({ origin, data }: MessageEvent) => {
         if (!data) return;
 
-        // Progress Saving Logic (Best Effort)
-        if (data.type === 'PLAYER_EVENT' || (data.data && data.data.currentTime)) {
-            const currentTime = data.data?.currentTime || data.currentTime;
-            const duration = data.data?.duration || data.duration;
+        // --- NEW: Specific PLAYER_EVENT Structure ---
+        if (data.type === 'PLAYER_EVENT' && data.data) {
+            const { event, currentTime, duration } = data.data;
 
             if (duration) durationRef.current = duration;
+
+            // 1. WATCH PARTY SYNC: Forward events to parent
+            if (onPlayerEvent) {
+                // Map 'time' event to 'sync' action for WatchParty polling
+                if (event === 'play') {
+                    onPlayerEvent({ action: 'play', time: currentTime, playing: true });
+                } else if (event === 'pause') {
+                    onPlayerEvent({ action: 'pause', time: currentTime, playing: false });
+                } else if (event === 'time') {
+                    onPlayerEvent({ action: 'sync', time: currentTime, playing: true });
+                }
+            }
+
+            // 2. Auto-Resume Logic
+            if (startTime > 0 && !hasResumedRef.current && (event === 'play' || event === 'time')) {
+                // If we are at the very beginning (buffer)
+                if (currentTime < 5) {
+                    if (iframeRef.current) {
+                        console.log("Auto-resuming to:", startTime);
+                        iframeRef.current.contentWindow?.postMessage({ command: 'seek', time: startTime }, '*');
+                        hasResumedRef.current = true;
+                    }
+                } else if (currentTime > startTime) {
+                    // We are past the save point (manually sought or player handled it), mark as done
+                    hasResumedRef.current = true;
+                }
+            }
+
+            // 3. Progress Saving Logic
+            if (enableProgressSave && currentTime > 0 && duration > 0) {
+                 if (event === 'time' || event === 'pause' || event === 'complete') {
+                     lastTimeRef.current = currentTime;
+                     
+                     const progressData = {
+                        id: tmdbId,
+                        type: type,
+                        title: mediaTitle || 'Unknown',
+                        poster_path: posterPath,
+                        backdrop_path: backdropPath,
+                        last_season_watched: season,
+                        last_episode_watched: episode,
+                        original_language: originalLanguage, 
+                        isAnime: isAnime, 
+                        progress: {
+                            watched: currentTime,
+                            duration: duration
+                        }
+                     };
+                     saveProgress(progressData);
+                 }
+            }
+            return; 
+        }
+
+        // --- OLD: Generic Fallback (Legacy) ---
+        if (data.data && data.data.currentTime) {
+            const currentTime = data.data.currentTime;
+            const duration = data.data.duration;
+
+            if (duration) durationRef.current = duration;
+
+            // Legacy Sync
+            if (onPlayerEvent && currentTime) {
+                 onPlayerEvent({ action: 'sync', time: currentTime, playing: true });
+            }
 
             if (enableProgressSave && currentTime > 0) {
                  lastTimeRef.current = currentTime;
@@ -157,6 +255,8 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
                     backdrop_path: backdropPath,
                     last_season_watched: season,
                     last_episode_watched: episode,
+                    original_language: originalLanguage, 
+                    isAnime: isAnime, 
                     progress: {
                         watched: currentTime,
                         duration: durationRef.current || 0
@@ -169,7 +269,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [enableProgressSave, tmdbId, type, season, episode, mediaTitle, posterPath, backdropPath]);
+  }, [enableProgressSave, tmdbId, type, season, episode, mediaTitle, posterPath, backdropPath, originalLanguage, isAnime, startTime, onPlayerEvent]);
 
   return (
     <div className="space-y-3">

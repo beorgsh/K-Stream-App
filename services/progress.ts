@@ -24,8 +24,59 @@ const formatData = (data: any): StoredMediaData | null => {
         last_season_watched: data.last_season_watched,
         last_episode_watched: data.last_episode_watched,
         last_updated: Date.now(),
-        show_progress: data.show_progress
+        show_progress: data.show_progress,
+        original_language: data.original_language, // Capture language
+        isAnime: data.isAnime // Capture anime flag
     };
+};
+
+// Retrieve specific progress for auto-resume
+export const getMediaProgress = async (
+    id: number | string, 
+    type: 'movie' | 'tv' | 'anime', 
+    season?: number, 
+    episode?: number
+): Promise<number> => {
+    const user = await waitForAuth();
+    // Construct key consistent with saveProgress
+    const key = `${type === 'movie' ? 'm' : 't'}${id}`;
+    
+    let data: StoredMediaData | null = null;
+
+    if (user && db) {
+        try {
+            const snapshot = await db.ref(`users/${user.uid}/progress/${key}`).once('value');
+            if (snapshot.exists()) {
+                data = snapshot.val();
+            }
+        } catch (err: any) {
+            console.error("DB Fetch Error:", err.message);
+        }
+    } else {
+        // Guest Mode
+        try {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                const allData = JSON.parse(stored);
+                data = allData[key] || null;
+            }
+        } catch (e) {
+            console.error("Local storage error", e);
+        }
+    }
+
+    if (!data || !data.progress) return 0;
+
+    // For TV/Anime, ensure we resume the correct episode
+    if (type !== 'movie') {
+        if (data.last_season_watched === season && data.last_episode_watched === episode) {
+            return data.progress.watched;
+        }
+        return 0; // Different episode, start from beginning
+    }
+
+    // For movies, just return the watched time
+    return data.progress.watched;
 };
 
 export const getContinueWatching = async (): Promise<Media[]> => {
@@ -49,10 +100,11 @@ export const getContinueWatching = async (): Promise<Media[]> => {
                 overview: '',
                 vote_average: 0,
                 media_type: item.type,
-                original_language: 'en',
+                original_language: item.original_language, // Remove default 'en' to allow correct filtering of legacy data
                 progress: item.progress,
                 last_season: item.last_season_watched,
-                last_episode: item.last_episode_watched
+                last_episode: item.last_episode_watched,
+                genre_ids: item.isAnime ? [16] : [] 
                 }));
             return formatted;
           } else {
@@ -88,10 +140,11 @@ const loadFromLocal = (): Promise<Media[]> => {
                     overview: '', 
                     vote_average: 0, 
                     media_type: item.type,
-                    original_language: 'en',
+                    original_language: item.original_language, // Remove default 'en'
                     progress: item.progress,
                     last_season: item.last_season_watched,
-                    last_episode: item.last_episode_watched
+                    last_episode: item.last_episode_watched,
+                    genre_ids: item.isAnime ? [16] : []
                 }));
             resolve(formatted);
         } catch (e) {
